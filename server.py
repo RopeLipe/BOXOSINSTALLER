@@ -106,32 +106,51 @@ def api_net_config():
 def api_install():
     """Receive installation config, write JSON files, and start archinstall guided script in background"""
     data = request.json or {}
-    # Build archinstall config
+    # Assemble the Archinstall config from payload
     config = {
-        'filesystem': 'ext4',
-        'harddrive': {'path': data.get('harddrive')},
-        'kernels': ['linux'],
-        'mirror-region': 'Worldwide',
-        'ntp': True,
-        'kernels': ['linux'],
-        'swap': True,
-        'timezone': 'UTC'
+        # translation & UI
+        "archinstall-language": data.get("archinstall-language"),
+        # audio always PipeWire
+        "audio_config": "pipewire",
+        # bootloader choice
+        "bootloader": data.get("bootloader", "systemd-boot"),
+        # debugging
+        "debug": data.get("debug", False),
+        # disk layout or auto partition
+        "disk_config": data.get("disk_config", {}),
+        # no disk encryption by default
+        # hostname
+        "hostname": data.get("hostname", "archlinux"),
+        # kernels
+        "kernels": data.get("kernels", ["linux"]),
+        # locale based on chosen language
+        "locale_config": {"sys_lang": data.get("archinstall-language"), "sys_enc": data.get("sys_enc", "UTF-8"), "kb_layout": data.get("kb_layout", "us")},
+        # mirror configuration from country step
+        "mirror_config": data.get("mirror_config", {}),
+        # network
+        "network_config": data.get("network_config", {}),
+        # package lookup
+        "no_pkg_lookups": data.get("no_pkg_lookups", False),
+        # NTP
+        "ntp": data.get("ntp", True),
+        # offline install?
+        "offline": data.get("offline", False),
+        # extra packages
+        "packages": data.get("packages", []),
+        "parallel downloads": data.get("parallel downloads", 0),
+        # minimal profile & unattended
+        "profile_config": "minimal",
+        "script": "unattended",
+        # silent
+        "silent": data.get("silent", False),
+        # swap
+        "swap": data.get("swap", True),
+        # timezone from step
+        "timezone": data.get("timezone", "UTC"),
+        # version
+        "version": data.get("version", getattr(archinstall, "__version__", None))
     }
-    # Network
-    net = data.get('network', {})
-    if net:
-        nic_cfg = {'NetworkManager': net.get('method') == 'dhcp'}
-        if net.get('interface'):
-            nic_cfg['nic'] = net.get('interface')
-        config['nic'] = nic_cfg
-        # Static fields are automatically applied by archinstall when NetworkManager is false
-    # User account
-    user = data.get('user', {})
-    username = user.get('username')
-    password = user.get('password')
-    if username and password:
-        config['superusers'] = {username: {'!password': password}}
-    # Write config file
+    # Write the user-provided Archinstall config to a temp file
     config_path = '/tmp/archinstall_config.json'
     with open(config_path, 'w') as f:
         json.dump(config, f)
@@ -158,6 +177,19 @@ def api_install():
 def api_install_logs():
     # serve the in-memory JSON progress messages
     return jsonify(list(progress_buffer))
+
+@app.route('/api/timezones/<country>')
+def api_timezones(country):
+    # return a list of timezones based on country code
+    tz_map = {
+        'US': ['America/New_York', 'America/Los_Angeles', 'America/Chicago', 'America/Denver'],
+        'CA': ['America/Toronto', 'America/Vancouver'],
+        'DE': ['Europe/Berlin'],
+        'FR': ['Europe/Paris'],
+        'JP': ['Asia/Tokyo'],
+        'AU': ['Australia/Sydney', 'Australia/Melbourne']
+    }
+    return jsonify(tz_map.get(country, ['UTC']))
 
 @app.route('/api/locale/<lang>')
 def api_locale(lang):

@@ -201,7 +201,64 @@
         /* --- Animations --- */
         @keyframes popInFinish { 0% { opacity: 0; transform: scale(0.8); } 100% { opacity: 1; transform: scale(1); } }
 
+        /* --- Timezone dropdown styling --- */
+        #timezone-container.form-group { margin-top: 1em; }
+        #timezone-container.form-group label {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 8px;
+            color: var(--text-muted);
+            font-size: 0.95rem;
+        }
+        #timezone-selector {
+            width: 100%;
+            max-width: 300px;
+            padding: 15px 20px;
+            background-color: var(--input-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            color: var(--text-muted);
+            font-size: 1rem;
+            transition: border-color 0.2s ease, box-shadow 0.2s ease;
+            appearance: none;
+            scrollbar-width: none; /* Firefox */
+        }
+        #timezone-selector:focus {
+            outline: none;
+            border-color: var(--accent-color);
+            box-shadow: 0 0 0 3px rgba(13,110,253,0.25);
+            color: var(--text-color);
+        }
+        #timezone-selector option { color: var(--text-color); }
+        #timezone-selector option[value=""] { color: var(--text-muted); }
+
+        /* --- Hide dropdown scrollbars --- */
+        #timezone-selector {
+            scrollbar-width: none;        /* Firefox */
+            -ms-overflow-style: none;     /* IE 10+ */
+        }
+        #timezone-selector::-webkit-scrollbar {
+            width: 0;
+            height: 0;
+        }
+        /* --- Option padding & highlight --- */
+        #timezone-selector option {
+            padding: 12px 20px;
+        }
+        #timezone-selector option:hover {
+            background-color: var(--accent-hover);
+            color: var(--accent-text);
+        }
+        #timezone-selector option:checked {
+            background-color: var(--accent-active);
+            color: var(--accent-text);
+        }
+
     </style>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/jsvectormap/dist/css/jsvectormap.min.css" />
+    <script src="https://cdn.jsdelivr.net/npm/jsvectormap"></script>
+    <script src="https://cdn.jsdelivr.net/npm/jsvectormap/dist/maps/world-merc.js"></script>
 </head>
 <body>
      <!-- Inline SVG Defs - CRUCIAL -->
@@ -304,7 +361,23 @@ This license applies to the core Wave application. Additional components or libr
                 </div>
             </div>
 
-            <!-- Step 4: Installation Destination -->
+            <!-- Step 4: Country Map & Timezone -->
+            <div class="step" id="step-country">
+                <h2>Select Your Country</h2>
+                <p>Click on the map to pick your country, then choose your timezone.</p>
+                <div id="country-map" style="width:100%; height:400px;"></div>
+                <div id="timezone-container" class="form-group" style="display:none;">
+                  <label for="timezone-selector">
+                    <svg width="18" height="18" style="fill:var(--text-muted);margin-right:8px;"><use xlink:href="#icon-globe"/></svg>
+                    Timezone
+                  </label>
+                  <select id="timezone-selector">
+                    <option value="" disabled selected>-- choose timezone --</option>
+                  </select>
+                </div>
+            </div>
+
+            <!-- Step 5: Installation Destination -->
              <div class="step" id="step-destination">
                  <h2><svg><use xlink:href="#icon-hdd"/></svg>Choose Install Location</h2>
                  <p>Select the drive where you want to install Wave. Make sure it has enough free space.</p>
@@ -318,7 +391,7 @@ This license applies to the core Wave application. Additional components or libr
                  <p id="disk-error-dest"></p>
              </div>
 
-            <!-- Step 5: Network Configuration -->
+            <!-- Step 6: Network Configuration -->
             <div class="step" id="step-network">
                  <h2><svg><use xlink:href="#icon-globe"/></svg>Configure Network</h2>
                  <p>Select a network interface to configure or reuse current system settings.</p>
@@ -357,7 +430,7 @@ This license applies to the core Wave application. Additional components or libr
                  <p id="network-error" class="disk-error-msg" style="display:none; margin-top:10px;"></p>
             </div>
 
-            <!-- Step 6: User Account Creation -->
+            <!-- Step 7: User Account Creation -->
             <div class="step" id="step-user-account">
                 <h2><svg><use xlink:href="#icon-user"/></svg>Create Your Account</h2>
                 <p>Set up the primary user account for Wave.</p>
@@ -378,7 +451,7 @@ This license applies to the core Wave application. Additional components or libr
                 </div>
             </div>
 
-            <!-- Step 7: Installation Progress -->
+            <!-- Step 8: Installation Progress -->
             <div class="step" id="step-installing">
                  <h2>Installing Wave</h2>
                  <p>Please wait while setup installs Wave on your computer.</p>
@@ -388,7 +461,7 @@ This license applies to the core Wave application. Additional components or libr
                  <p id="progress-text-install">Initializing...</p>
             </div>
 
-            <!-- Step 8: Finish -->
+            <!-- Step 9: Finish -->
             <div class="step" id="step-finish">
                  <div class="finish-icon">
                     <svg><use xlink:href="#icon-success-circle"/></svg>
@@ -448,11 +521,13 @@ This license applies to the core Wave application. Additional components or libr
             const wifiConfig = document.getElementById('wifi-config');
             const wifiNetworks = document.getElementById('wifi-networks');
             const wifiPassword = document.getElementById('wifi-password');
+            const tzSelect = document.getElementById('timezone-selector');
 
             // --- Config & Constants ---
             const REQUIRED_SPACE_MB = 500;
             const STEPS_CONFIG = [
                 { id: 'step-language' }, { id: 'step-welcome' }, { id: 'step-license' },
+                { id: 'step-country' },
                 { id: 'step-destination' }, { id: 'step-network' }, { id: 'step-user-account' },
                 { id: 'step-installing' }, { id: 'step-finish' }
             ];
@@ -464,8 +539,8 @@ This license applies to the core Wave application. Additional components or libr
             let installInterval = null;
             let hasRenderedDisks = false;
             let hasRenderedNetwork = false;
-            let selectedInterface = null;
-            let selectedSSID = null;
+            let selectedCountry = null;
+            let selectedTimezone = null;
 
             // --- Functions ---
             function formatBytes(bytes, decimals = 1) {
@@ -489,43 +564,43 @@ This license applies to the core Wave application. Additional components or libr
                         disks.forEach((disk, index) => {
                             const freeBytes = disk.free_bytes;
                             const totalBytes = disk.total_bytes;
-                            const usedBytes = totalBytes - freeBytes;
-                            const usedPercentage = totalBytes > 0 ? (usedBytes / totalBytes) * 100 : 0;
+                    const usedBytes = totalBytes - freeBytes;
+                    const usedPercentage = totalBytes > 0 ? (usedBytes / totalBytes) * 100 : 0;
                             const hasEnoughSpace = freeBytes >= REQUIRED_SPACE_MB * 1024 * 1024;
-                            const option = document.createElement('div');
-                            option.classList.add('disk-option');
+                    const option = document.createElement('div');
+                    option.classList.add('disk-option');
                             option.setAttribute('data-path', disk.path);
-                            if (!hasEnoughSpace) option.classList.add('disabled');
-                            option.innerHTML = `
-                                <div class="disk-option-info">
-                                    <div class="disk-option-icon"><svg><use xlink:href="#icon-hdd"/></svg></div>
-                                    <div class="disk-option-details">
+                    if (!hasEnoughSpace) option.classList.add('disabled');
+                    option.innerHTML = `
+                        <div class="disk-option-info">
+                            <div class="disk-option-icon"><svg><use xlink:href="#icon-hdd"/></svg></div>
+                            <div class="disk-option-details">
                                         <span class="disk-option-name">${disk.model}</span>
-                                        <span class="disk-option-space">${formatBytes(freeBytes)} free / ${formatBytes(totalBytes)} total</span>
+                                <span class="disk-option-space">${formatBytes(freeBytes)} free / ${formatBytes(totalBytes)} total</span>
                                         <span class="disk-option-required">Requires: ${formatBytes(REQUIRED_SPACE_MB * 1024 * 1024)}</span>
-                                    </div>
-                                </div>
-                                <div class="disk-capacity-bar">
-                                    <div class="disk-capacity-fill" style="width: ${usedPercentage.toFixed(1)}%;"></div>
-                                </div>
-                                ${!hasEnoughSpace ? '<div class="disk-error-msg">Insufficient space</div>' : ''}
-                            `;
-                            option.addEventListener('click', () => {
+                            </div>
+                        </div>
+                        <div class="disk-capacity-bar">
+                            <div class="disk-capacity-fill" style="width: ${usedPercentage.toFixed(1)}%;"></div>
+                        </div>
+                        ${!hasEnoughSpace ? '<div class="disk-error-msg">Insufficient space</div>' : ''}
+                    `;
+                    option.addEventListener('click', () => {
                                 errorEl.style.display = 'none';
-                                if (option.classList.contains('disabled')) {
+                        if (option.classList.contains('disabled')) {
                                     errorEl.textContent = `Not enough free space on ${disk.path}. Requires ${formatBytes(REQUIRED_SPACE_MB * 1024 * 1024)}.`;
                                     errorEl.style.display = 'block';
-                                    diskOptionsContainer.querySelectorAll('.disk-option.selected').forEach(o => o.classList.remove('selected'));
-                                    selectedDriveInfo = null;
-                                } else {
-                                    diskOptionsContainer.querySelectorAll('.disk-option.selected').forEach(o => o.classList.remove('selected'));
-                                    option.classList.add('selected');
+                            diskOptionsContainer.querySelectorAll('.disk-option.selected').forEach(o => o.classList.remove('selected'));
+                            selectedDriveInfo = null;
+                        } else {
+                            diskOptionsContainer.querySelectorAll('.disk-option.selected').forEach(o => o.classList.remove('selected'));
+                            option.classList.add('selected');
                                     selectedDriveInfo = { path: disk.path, free: freeBytes, total: totalBytes, element: option };
-                                }
+                        }
                                 installPathCode.textContent = `${disk.path}`;
-                                updateButtonStates();
-                            });
-                            diskOptionsContainer.appendChild(option);
+                        updateButtonStates();
+                    });
+                    diskOptionsContainer.appendChild(option);
                         });
                     })
                     .catch(err => {
@@ -543,7 +618,11 @@ This license applies to the core Wave application. Additional components or libr
                     .then(res => res.json())
                     .then(status => {
                         if (status.connection_type === 'ethernet') {
-                            networkStatusContainer.innerHTML = `<p>Connected via Ethernet on <strong>${status.interface}</strong>.</p>`;
+                            networkStatusContainer.innerHTML = `
+                                <div style="display:flex; align-items:center;">
+                                    <svg width="24" height="24" style="margin-right:8px;"><use xlink:href="#icon-globe"/></svg>
+                                    <span>Connected to Ethernet</span>
+                                </div>`;
                             // allow proceed
                             selectedInterface = status.interface;
                             updateButtonStates();
@@ -621,6 +700,8 @@ This license applies to the core Wave application. Additional components or libr
                  let disableNext = false;
                  if (currentStepId === 'step-license') {
                      disableNext = !acceptLicenseCheckbox.checked;
+                 } else if (currentStepId === 'step-country') {
+                     disableNext = !(selectedCountry && selectedTimezone);
                  } else if (currentStepId === 'step-destination') {
                      disableNext = !selectedDriveInfo;
                  } else if (currentStepId === 'step-network') {
@@ -687,15 +768,18 @@ This license applies to the core Wave application. Additional components or libr
                 // disable navigation
                 nextButton.disabled = true;
                 // build payload
+                const mirrorRegion = selectedTimezone ? selectedTimezone.split('/')[0] : null;
                 const payload = {
-                    harddrive: selectedDriveInfo?.path,
-                    network: {
+                    "archinstall-language": selectedLanguage,
+                    "mirror_config": { mirror_regions: { [mirrorRegion]: [] } },
+                    "timezone": selectedTimezone,
+                    "network_config": {
                         interface: selectedInterface,
                         ssid: selectedSSID,
                         password: wifiPassword.value,
                         method: networkMethodContainer.querySelector('input[name="net-method"]:checked')?.value
                     },
-                    user: {
+                    "user": {
                         username: usernameInput.value,
                         password: passwordInput.value
                     }
@@ -709,12 +793,12 @@ This license applies to the core Wave application. Additional components or libr
                 .then(r => r.json())
                 .then(res => {
                     if (res.status === 'running') {
-                        progressBar.style.width = '0%';
+                 progressBar.style.width = '0%';
                         progressText.textContent = 'Starting installation...';
                         logPollInterval = setInterval(updateInstallLogs, 500);
-                    } else {
+                     } else {
                         progressText.textContent = 'Failed to start installer';
-                    }
+                     }
                 })
                 .catch(err => {
                     progressText.textContent = `Error: ${err}`;
@@ -745,7 +829,7 @@ This license applies to the core Wave application. Additional components or libr
                          networkErrorEl.style.display = 'block';
                          return;
                      }
-                     if (currentStepId === 'step-user-account' && !validateUserAccount()) {
+                      if (currentStepId === 'step-user-account' && !validateUserAccount()) {
                          updateButtonStates();
                          return;
                      }
@@ -783,10 +867,56 @@ This license applies to the core Wave application. Additional components or libr
                     updateButtonStates();
                 });
             }
+            // wire up the timezone dropdown directly
+            if (tzSelect) {
+                tzSelect.addEventListener('change', e => {
+                    selectedTimezone = e.target.value;
+                    updateButtonStates();
+                });
+            }
 
             // --- Initial Setup ---
             applyLocale(selectedLanguage);
             updateUI();
+
+            // initialize interactive country map selector (uses outer selectedCountry)
+            const countryMap = new jsVectorMap({
+                selector: '#country-map',
+                map: 'world_merc',
+                regionsSelectable: true,
+                regionStyle: {
+                    initial: { fill: 'var(--content-bg)' },
+                    hover:   { fill: 'var(--accent-hover)' },
+                    selected:{ fill: 'var(--accent-color)' }
+                },
+                onRegionClick: (event, code) => {
+                    // highlight the selected country
+                    countryMap.clearSelectedRegions();
+                    countryMap.setSelectedRegions([code]);
+                    selectedCountry = code;
+                    // populate timezone dropdown via API
+                    const tzSelect = document.getElementById('timezone-selector');
+                    tzSelect.innerHTML = '<option value="" disabled selected>-- choose timezone --</option>';
+                    fetch(`/api/timezones/${code}`)
+                        .then(r => r.json())
+                        .then(zones => {
+                            zones.forEach(zone => {
+                                const opt = document.createElement('option');
+                                opt.value = zone;
+                                opt.textContent = zone;
+                                tzSelect.appendChild(opt);
+                            });
+                        })
+                        .catch(err => {
+                            console.warn('timezone API failed', err);
+                            const opt = document.createElement('option'); opt.value = 'UTC'; opt.textContent = 'UTC'; tzSelect.appendChild(opt);
+                        })
+                        .finally(() => {
+                            document.getElementById('timezone-container').style.display = 'block';
+                            updateButtonStates();
+                        });
+                }
+            });
         });
 
         // Internationalization: fetch and apply locale strings
@@ -814,12 +944,19 @@ This license applies to the core Wave application. Additional components or libr
                     document.querySelector('#step-license p').textContent = strings.step_license_prompt;
                     document.getElementById('license-content').textContent = strings.step_license_content;
 
-                    // Step 4: Installation Destination
+                    // Step 4: Country Map & Timezone
+                    document.querySelector('#step-country h2').textContent = strings.step_country_title;
+                    document.querySelector('#step-country p').textContent = strings.step_country_prompt;
+                    // update only the timezone label text span, keep the SVG
+                    const tzLabelSpan = document.getElementById('timezone-label-text');
+                    if (tzLabelSpan) tzLabelSpan.textContent = strings.step_timezone_label;
+
+                    // Step 5: Installation Destination
                     document.querySelector('#step-destination h2').textContent = strings.step_destination_title;
                     document.querySelector('#step-destination p').textContent = strings.step_destination_prompt;
                     document.querySelector('#install-path-display-dest code').textContent = strings.step_destination_default;
 
-                    // Step 5: Network Configuration
+                    // Step 6: Network Configuration
                     document.querySelector('#step-network h2').textContent = strings.step_network_title;
                     document.querySelector('#step-network p').textContent = strings.step_network_prompt;
                     document.querySelector('#wifi-config label[for="wifi-networks"]').textContent = strings.step_network_label;
@@ -828,7 +965,7 @@ This license applies to the core Wave application. Additional components or libr
                     netMethods[0].textContent = strings.step_network_method_dhcp;
                     netMethods[1].textContent = strings.step_network_method_static;
 
-                    // Step 6: User Account Creation
+                    // Step 7: User Account Creation
                     document.querySelector('#step-user-account h2').textContent = strings.step_user_title;
                     document.querySelector('#step-user-account p').textContent = strings.step_user_prompt;
                     const userLabels = document.querySelectorAll('#step-user-account .form-group label');
@@ -840,12 +977,12 @@ This license applies to the core Wave application. Additional components or libr
                     document.getElementById('confirm-password').placeholder = strings.step_user_confirm_placeholder;
                     document.getElementById('password-error').textContent = strings.step_user_password_error;
 
-                    // Step 7: Installation Progress
+                    // Step 8: Installation Progress
                     document.querySelector('#step-installing h2').textContent = strings.step_installing_title;
                     document.querySelector('#step-installing p').textContent = strings.step_installing_prompt;
                     document.getElementById('progress-text-install').textContent = strings.step_installing_initializing;
 
-                    // Step 8: Finish
+                    // Step 9: Finish
                     document.querySelector('#step-finish h2').textContent = strings.step_finish_title;
                     document.querySelector('#step-finish p').textContent = strings.step_finish_prompt;
                     document.querySelector('#step-finish .accept-label').lastChild.textContent = strings.step_finish_launch;

@@ -50,5 +50,8 @@
   "step_finish_launch": "Avvia Wave ora",
   "button_next": "Avanti",
   "button_back": "Indietro",
-  "button_finish": "Fine"
+  "button_finish": "Fine",
+  "step_country_title": "Seleziona il tuo Paese",
+  "step_country_prompt": "Fai clic sulla mappa per selezionare il tuo Paese, quindi scegli il tuo fuso orario.",
+  "step_timezone_label": "Fuso orario"
 } 

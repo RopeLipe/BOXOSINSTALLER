@@ -50,5 +50,8 @@
   "step_finish_launch": "Iniciar Wave ahora",
   "button_next": "Siguiente",
   "button_back": "Atrás",
-  "button_finish": "Finalizar"
+  "button_finish": "Finalizar",
+  "step_country_title": "Seleccione su país",
+  "step_country_prompt": "Haga clic en el mapa para seleccionar su país y luego elija su zona horaria.",
+  "step_timezone_label": "Zona horaria"
 } 

@@ -50,5 +50,8 @@
   "step_finish_launch": "Wave jetzt starten",
   "button_next": "Weiter",
   "button_back": "Zurück",
-  "button_finish": "Fertigstellen"
+  "button_finish": "Fertigstellen",
+  "step_country_title": "Wählen Sie Ihr Land",
+  "step_country_prompt": "Klicken Sie auf die Karte, um Ihr Land auszuwählen, und wählen Sie dann Ihre Zeitzone.",
+  "step_timezone_label": "Zeitzone"
 } 
