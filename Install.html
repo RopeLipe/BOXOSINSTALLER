@@ -322,8 +322,13 @@ This license applies to the core Wave application. Additional components or libr
             <div class="step" id="step-network">
                  <h2><svg><use xlink:href="#icon-globe"/></svg>Configure Network</h2>
                  <p>Select a network interface to configure or reuse current system settings.</p>
-                 <div class="disk-selection-grid" id="network-options-container">
-                     <!-- Interfaces populated by JS -->
+                 <div id="network-options-container" class="step-content"></div>
+                 <div id="network-status-container" class="step-content"></div>
+                 <div id="wifi-config" class="step-content" style="display:none; margin-top:1em;">
+                   <label for="wifi-networks">Network:</label>
+                   <select id="wifi-networks"></select>
+                   <label for="wifi-password">Password:</label>
+                   <input type="password" id="wifi-password" placeholder="Enter password (if required)" />
                  </div>
                  <div id="network-method-container" style="display:none; margin-top:20px;">
                      <label class="accept-label">
@@ -439,6 +444,10 @@ This license applies to the core Wave application. Additional components or libr
             const netMaskInput = document.getElementById('net-mask');
             const netGwInput = document.getElementById('net-gw');
             const networkErrorEl = document.getElementById('network-error');
+            const networkStatusContainer = document.getElementById('network-status-container');
+            const wifiConfig = document.getElementById('wifi-config');
+            const wifiNetworks = document.getElementById('wifi-networks');
+            const wifiPassword = document.getElementById('wifi-password');
 
             // --- Config & Constants ---
             const REQUIRED_SPACE_MB = 500;
@@ -456,6 +465,7 @@ This license applies to the core Wave application. Additional components or libr
             let hasRenderedDisks = false;
             let hasRenderedNetwork = false;
             let selectedInterface = null;
+            let selectedSSID = null;
 
             // --- Functions ---
             function formatBytes(bytes, decimals = 1) {
@@ -526,30 +536,34 @@ This license applies to the core Wave application. Additional components or libr
             }
 
             function renderNetworkOptions() {
-                networkOptionsContainer.innerHTML = '';
+                networkStatusContainer.innerHTML = '';
                 networkErrorEl.style.display = 'none';
-                fetch('/api/network/interfaces')
+                // check connection status via API
+                fetch('/api/network/status')
                     .then(res => res.json())
-                    .then(ifaces => {
-                        ifaces.forEach(({name}) => {
-                            const option = document.createElement('div');
-                            option.classList.add('disk-option');
-                            option.setAttribute('data-iface', name);
-                            option.innerHTML = `<span>${name}</span>`;
-                            option.addEventListener('click', () => {
-                                networkErrorEl.style.display = 'none';
-                                networkOptionsContainer.querySelectorAll('.disk-option.selected').forEach(o => o.classList.remove('selected'));
-                                option.classList.add('selected');
-                                selectedInterface = name;
-                                networkMethodContainer.style.display = 'block';
-                                updateNetworkForm();
-                                updateButtonStates();
+                    .then(status => {
+                        if (status.connection_type === 'ethernet') {
+                            networkStatusContainer.innerHTML = `<p>Connected via Ethernet on <strong>${status.interface}</strong>.</p>`;
+                            // allow proceed
+                            selectedInterface = status.interface;
+                            updateButtonStates();
+                        } else if (status.connection_type === 'wifi') {
+                            networkStatusContainer.innerHTML = `<p>Wireless interface detected: <strong>${status.interface}</strong>. Please select a network:</p>`;
+                            // populate dropdown
+                            const select = document.getElementById('wifi-networks');
+                            select.innerHTML = '<option value="">-- choose network --</option>';
+                            status.networks.forEach(ssid => {
+                                select.innerHTML += `<option value="${ssid}">${ssid}</option>`;
                             });
-                            networkOptionsContainer.appendChild(option);
-                        });
+                            document.getElementById('wifi-config').style.display = 'block';
+                            select.addEventListener('change', e => { selectedSSID = e.target.value; updateButtonStates(); });
+                            document.getElementById('wifi-password').addEventListener('input', () => updateButtonStates());
+                        } else {
+                            networkStatusContainer.innerHTML = `<p>No network detected.</p>`;
+                        }
                     })
                     .catch(err => {
-                        networkErrorEl.textContent = `Error loading interfaces: ${err}`;
+                        networkErrorEl.textContent = `Error checking network: ${err}`;
                         networkErrorEl.style.display = 'block';
                     })
                     .finally(() => { hasRenderedNetwork = true; });
@@ -647,26 +661,64 @@ This license applies to the core Wave application. Additional components or libr
                 updateButtonStates();
             }
 
+            // === Real installation: start via API and poll JSON logs ===
+            let logPollInterval;
+            function updateInstallLogs() {
+                fetch('/api/install/logs')
+                    .then(r => r.json())
+                    .then(events => {
+                        const last = events[events.length-1] || {};
+                        // update progress bar and text
+                        if (last.percent !== undefined) {
+                            progressBar.style.width = last.percent + '%';
+                            progressText.textContent = last.step || last.message || '';
+                        } else if (last.message) {
+                            progressText.textContent = last.message;
+                        }
+                        // finish when done
+                        if (last.status === 'done' || last.percent === 100) {
+                            clearInterval(logPollInterval);
+                            setTimeout(goToNextStep, 500);
+                        }
+                    })
+                    .catch(() => {});
+            }
             function startInstallation() {
-                 let progress = 0;
-                 progressBar.style.width = '0%';
-                 progressText.textContent = 'Preparing...';
-                 clearInterval(installInterval);
-                 installInterval = setInterval(() => {
-                     progress += Math.random() * 15;
-                     if (progress >= 100) {
-                         progress = 100;
-                         progressBar.style.width = '100%';
-                         progressText.textContent = 'Installation Complete!';
-                         clearInterval(installInterval);
-                         setTimeout(goToNextStep, 800);
-                     } else {
-                         progressBar.style.width = progress + '%';
-                          if (progress < 40) { progressText.textContent = 'Copying files...'; }
-                          else if (progress < 80) { progressText.textContent = 'Configuring system...'; }
-                          else { progressText.textContent = 'Finalizing...'; }
-                     }
-                 }, 300);
+                // disable navigation
+                nextButton.disabled = true;
+                // build payload
+                const payload = {
+                    harddrive: selectedDriveInfo?.path,
+                    network: {
+                        interface: selectedInterface,
+                        ssid: selectedSSID,
+                        password: wifiPassword.value,
+                        method: networkMethodContainer.querySelector('input[name="net-method"]:checked')?.value
+                    },
+                    user: {
+                        username: usernameInput.value,
+                        password: passwordInput.value
+                    }
+                };
+                // kick off the installer
+                fetch('/api/install', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                })
+                .then(r => r.json())
+                .then(res => {
+                    if (res.status === 'running') {
+                        progressBar.style.width = '0%';
+                        progressText.textContent = 'Starting installation...';
+                        logPollInterval = setInterval(updateInstallLogs, 500);
+                    } else {
+                        progressText.textContent = 'Failed to start installer';
+                    }
+                })
+                .catch(err => {
+                    progressText.textContent = `Error: ${err}`;
+                });
             }
             function stopInstallation() {
                 clearInterval(installInterval);
@@ -717,6 +769,7 @@ This license applies to the core Wave application. Additional components or libr
                      selectedLanguage = e.target.dataset.lang;
                      console.log("Language selected:", selectedLanguage);
                      updateButtonStates();
+                     applyLocale(selectedLanguage);
                  }
              });
             if (acceptLicenseCheckbox) acceptLicenseCheckbox.addEventListener('change', updateButtonStates);
@@ -732,8 +785,77 @@ This license applies to the core Wave application. Additional components or libr
             }
 
             // --- Initial Setup ---
+            applyLocale(selectedLanguage);
             updateUI();
         });
+
+        // Internationalization: fetch and apply locale strings
+        function applyLocale(lang) {
+            fetch(`/api/locale/${lang}`)
+                .then(r => r.json())
+                .then(strings => {
+                    // Step 1: Language Selection
+                    document.querySelector('#step-language h2').textContent = strings.step_language_title;
+                    document.querySelector('#step-language p').textContent = strings.step_language_prompt;
+
+                    // Step 2: Welcome / Intro
+                    document.querySelector('#step-welcome h2').textContent = strings.step_welcome_title;
+                    const welcomePs = document.querySelectorAll('#step-welcome p');
+                    welcomePs[0].textContent = strings.step_welcome_lead;
+                    welcomePs[1].textContent = strings.step_welcome_needed;
+                    welcomePs[2].textContent = strings.step_welcome_footer;
+                    const welcomeItems = document.querySelectorAll('#step-welcome ul li');
+                    welcomeItems[0].textContent = strings.step_welcome_item1;
+                    welcomeItems[1].textContent = strings.step_welcome_item2;
+                    welcomeItems[2].textContent = strings.step_welcome_item3;
+
+                    // Step 3: License Agreement
+                    document.querySelector('#step-license h2').lastChild.textContent = strings.step_license_title;
+                    document.querySelector('#step-license p').textContent = strings.step_license_prompt;
+                    document.getElementById('license-content').textContent = strings.step_license_content;
+
+                    // Step 4: Installation Destination
+                    document.querySelector('#step-destination h2').textContent = strings.step_destination_title;
+                    document.querySelector('#step-destination p').textContent = strings.step_destination_prompt;
+                    document.querySelector('#install-path-display-dest code').textContent = strings.step_destination_default;
+
+                    // Step 5: Network Configuration
+                    document.querySelector('#step-network h2').textContent = strings.step_network_title;
+                    document.querySelector('#step-network p').textContent = strings.step_network_prompt;
+                    document.querySelector('#wifi-config label[for="wifi-networks"]').textContent = strings.step_network_label;
+                    document.querySelector('#wifi-config label[for="wifi-password"]').textContent = strings.step_network_password_label;
+                    const netMethods = document.querySelectorAll('#network-method-container span');
+                    netMethods[0].textContent = strings.step_network_method_dhcp;
+                    netMethods[1].textContent = strings.step_network_method_static;
+
+                    // Step 6: User Account Creation
+                    document.querySelector('#step-user-account h2').textContent = strings.step_user_title;
+                    document.querySelector('#step-user-account p').textContent = strings.step_user_prompt;
+                    const userLabels = document.querySelectorAll('#step-user-account .form-group label');
+                    userLabels[0].lastChild.textContent = strings.step_user_username_label;
+                    userLabels[1].lastChild.textContent = strings.step_user_password_label;
+                    userLabels[2].lastChild.textContent = strings.step_user_confirm_label;
+                    document.getElementById('username').placeholder = strings.step_user_username_placeholder;
+                    document.getElementById('password').placeholder = strings.step_user_password_placeholder;
+                    document.getElementById('confirm-password').placeholder = strings.step_user_confirm_placeholder;
+                    document.getElementById('password-error').textContent = strings.step_user_password_error;
+
+                    // Step 7: Installation Progress
+                    document.querySelector('#step-installing h2').textContent = strings.step_installing_title;
+                    document.querySelector('#step-installing p').textContent = strings.step_installing_prompt;
+                    document.getElementById('progress-text-install').textContent = strings.step_installing_initializing;
+
+                    // Step 8: Finish
+                    document.querySelector('#step-finish h2').textContent = strings.step_finish_title;
+                    document.querySelector('#step-finish p').textContent = strings.step_finish_prompt;
+                    document.querySelector('#step-finish .accept-label').lastChild.textContent = strings.step_finish_launch;
+
+                    // Footer Buttons
+                    nextButton.textContent = strings.button_next;
+                    backButton.textContent = strings.button_back;
+                    finishButton.textContent = strings.button_finish;
+                });
+        }
     </script>
 
 </body>
