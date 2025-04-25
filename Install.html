@@ -1,0 +1,740 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Wave Installer</title>
+    <style>
+        /* --- Base Styles & Variables --- */
+        :root {
+            --bg-color: #1a1d21;
+            --content-bg: #212529;
+            --input-bg: #2c3034;
+            --text-color: #e9ecef;
+            --text-muted: #adb5bd;
+            --border-color: #343a40;
+            --accent-color: #0d6efd; /* Blue */
+            --accent-hover: #0b5ed7;
+            --accent-active: #0a58ca;
+            --accent-text: #ffffff;
+            --success-color: #198754; /* Green */
+            --error-color: #dc3545; /* Red */
+            --error-light-bg: rgba(220, 53, 69, 0.1);
+
+            --button-bg: #343a40;
+            --button-hover-bg: #495057;
+            --button-text: var(--text-color);
+
+            --font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+        }
+
+        /* --- Basic Reset --- */
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        html, body { height: 100%; width: 100%; overflow: hidden; font-family: var(--font-family); font-size: 16px; background-color: var(--bg-color); color: var(--text-color); }
+
+        /* --- Installer Layout --- */
+        #installer { display: flex; flex-direction: column; height: 100vh; width: 100vw; }
+        .installer-body { flex-grow: 1; position: relative; overflow: hidden; display: flex; justify-content: center; align-items: center; padding: 40px 40px 60px 40px; }
+        .installer-footer { padding: 20px 40px; flex-shrink: 0; background-color: var(--bg-color); display: flex; justify-content: flex-end; align-items: center; }
+
+        /* --- Steps --- */
+        .step { position: absolute; width: calc(100% - 80px); height: calc(100% - 100px); max-width: 1100px; max-height: 750px; overflow-y: auto; overflow-x: hidden; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 40px; background-color: var(--bg-color); opacity: 0; visibility: hidden; transform: scale(0.98); transition: opacity 0.35s ease-out, transform 0.35s ease-out; z-index: 1; border-radius: 8px; }
+        .step.active { opacity: 1; visibility: visible; transform: scale(1); z-index: 2; }
+        .step.leaving { opacity: 0; transform: scale(1.02); z-index: 1; }
+
+        /* --- Step Content Styling --- */
+        .step h2 { font-size: 2rem; font-weight: 600; margin-bottom: 20px; color: var(--text-color); text-align: inherit; display: flex; align-items: center; justify-content: center; width: 100%; }
+        .step h2 svg { width: 28px; height: 28px; margin-right: 12px; fill: var(--accent-color); opacity: 0.8; flex-shrink: 0;}
+        .step p { font-size: 1rem; line-height: 1.6; color: var(--text-muted); margin-bottom: 25px; max-width: 650px; text-align: inherit; }
+        .step p.lead { font-size: 1.15rem; color: var(--text-color); margin-bottom: 30px; }
+        .step-split-layout { display: flex; flex-direction: row; justify-content: space-around; align-items: center; width: 100%; gap: 60px; }
+        .step-split-layout > div { flex: 1; max-width: 50%; }
+        .step-split-layout .graphic-area { text-align: center; }
+        .step-split-layout .content-area { text-align: left; }
+
+        /* --- Language Step --- */
+        #step-language { justify-content: space-around; }
+        #step-language h2 svg { display: none; }
+        .language-list { list-style: none; margin: 20px 0; max-height: 300px; overflow-y: auto; width: 100%; max-width: 400px; border: 1px solid var(--border-color); border-radius: 8px; background-color: var(--content-bg); }
+        .language-item { padding: 16px 28px; cursor: pointer; border-bottom: 1px solid var(--border-color); transition: background-color 0.2s ease; font-size: 1rem; }
+        .language-item:last-child { border-bottom: none; }
+        .language-item:hover { background-color: var(--button-hover-bg); }
+        .language-item.selected { background-color: var(--accent-active); color: var(--accent-text); font-weight: 500; }
+        .language-graphic svg { width: 120px; height: 120px; fill: var(--text-muted); opacity: 0.5; }
+
+        /* --- Welcome Step --- */
+        #step-welcome h2 svg { display: none; }
+        #step-welcome .welcome-content { text-align: left; }
+        #step-welcome ul { list-style-position: inside; padding-left: 0; margin-bottom: 25px; color: var(--text-muted); }
+        #step-welcome li { margin-bottom: 10px; }
+        .icon-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(70px, 1fr)); gap: 20px; width: 100%; max-width: 360px; margin-top: 20px;}
+        .icon-grid-item { aspect-ratio: 1 / 1; border-radius: 12px; display: flex; justify-content: center; align-items: center; background-color: var(--button-bg); overflow: hidden; position: relative; box-shadow: 0 4px 8px rgba(0,0,0,0.2); }
+        .icon-grid-item::before { content: ''; position: absolute; top: 0; left: 0; width: 150%; height: 150%; background: linear-gradient(45deg, var(--color1, #3498db) 0%, var(--color1, #3498db) 45%, var(--color2, #2980b9) 55%, var(--color2, #2980b9) 100%); transform-origin: top left; transform: rotate(-45deg) translate(-25%, 0%); z-index: 1; transition: transform 0.3s ease; }
+        .icon-grid-item:hover::before { transform: rotate(-45deg) translate(-25%, -5%); }
+        .icon-grid-item svg { width: 50%; height: 50%; z-index: 2; position: relative; fill: rgba(255,255,255,0.8); filter: drop-shadow(0 1px 2px rgba(0,0,0,0.5)); }
+        .icon-grid-item:nth-child(1) { --color1: #e74c3c; --color2: #c0392b; } .icon-grid-item:nth-child(2) { --color1: #f1c40f; --color2: #f39c12; } .icon-grid-item:nth-child(3) { --color1: #9b59b6; --color2: #8e44ad; } .icon-grid-item:nth-child(4) { --color1: #2ecc71; --color2: #27ae60; } .icon-grid-item:nth-child(5) { --color1: #3498db; --color2: #2980b9; } .icon-grid-item:nth-child(6) { --color1: #e67e22; --color2: #d35400; } .icon-grid-item:nth-child(7) { --color1: #1abc9c; --color2: #16a085; } .icon-grid-item:nth-child(8) { --color1: #34495e; --color2: #2c3e50; }
+
+        /* --- License Step --- */
+        .license-graphic svg { width: 130px; height: 130px; fill: var(--text-muted); opacity: 0.4; }
+        .license-content { height: 300px; overflow-y: auto; border: 1px solid var(--border-color); padding: 25px; font-size: 0.88rem; background-color: var(--content-bg); border-radius: 8px; color: var(--text-muted); margin-bottom: 20px; white-space: pre-wrap; }
+        .accept-label { display: inline-flex; align-items: center; cursor: pointer; padding: 12px; border-radius: 6px; transition: background-color 0.2s ease; margin-top: 10px; user-select: none; }
+        .accept-label:hover { background-color: rgba(255, 255, 255, 0.05); }
+        .accept-label input[type="checkbox"] { display: none; }
+        .custom-checkbox { width: 22px; height: 22px; border: 2px solid var(--text-muted); border-radius: 5px; margin-right: 12px; display: inline-flex; justify-content: center; align-items: center; transition: all 0.2s ease; flex-shrink: 0; }
+        .custom-checkbox svg { width: 16px; height: 16px; fill: var(--accent-text); opacity: 0; transform: scale(0.5); transition: opacity 0.2s ease, transform 0.2s ease; }
+        .accept-label input[type="checkbox"]:checked + .custom-checkbox { background-color: var(--accent-color); border-color: var(--accent-color); }
+        .accept-label input[type="checkbox"]:checked + .custom-checkbox svg { opacity: 1; transform: scale(1); }
+
+        /* --- Destination Step --- */
+        #step-destination { align-items: flex-start; text-align: left; width: 100%; justify-content: flex-start;}
+        #step-destination h2, #step-destination p { width: 100%; max-width: none;}
+        #step-destination h2 { justify-content: flex-start; } /* Align title left */
+        .disk-selection-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 20px; width: 100%; margin: 25px 0; }
+        .disk-option { background-color: var(--content-bg); border: 2px solid var(--border-color); border-radius: 8px; padding: 20px; cursor: pointer; transition: all 0.2s ease-out; position: relative; }
+        .disk-option:hover { border-color: var(--text-muted); transform: translateY(-2px); box-shadow: 0 3px 8px rgba(0,0,0,0.1); }
+        .disk-option.selected { border-color: var(--accent-color); background-color: rgba(13, 110, 253, 0.1); box-shadow: 0 0 0 2px var(--accent-color); }
+        .disk-option.selected::after { content: '✔'; font-size: 16px; color: var(--accent-color); position: absolute; top: 12px; right: 15px; font-weight: bold; }
+        .disk-option.disabled { cursor: not-allowed; opacity: 0.5; background-color: var(--content-bg); }
+        .disk-option.disabled:hover { border-color: var(--border-color); transform: none; box-shadow: none; }
+        .disk-option-info { display: flex; align-items: center; margin-bottom: 12px; }
+        .disk-option-icon svg { width: 28px; height: 28px; fill: var(--text-muted); margin-right: 12px; flex-shrink: 0; }
+        .disk-option-details span { display: block; }
+        .disk-option-name { font-weight: 500; color: var(--text-color); font-size: 1.05rem;}
+        .disk-option-space { font-size: 0.85rem; color: var(--text-muted); }
+        .disk-option-required { font-size: 0.8rem; color: var(--text-muted); margin-top: 5px; }
+        .disk-capacity-bar { width: 100%; height: 6px; background-color: var(--border-color); border-radius: 3px; overflow: hidden; margin-top: 8px; }
+        .disk-capacity-fill { height: 100%; background-color: var(--text-muted); border-radius: 3px; transition: width 0.5s ease-out; }
+        .disk-option.selected .disk-capacity-fill { background-color: var(--accent-color); }
+        .disk-option.disabled .disk-capacity-fill { background-color: var(--error-color); }
+        .disk-error-msg { font-size: 0.8rem; color: var(--error-color); margin-top: 8px; }
+        #install-path-display-dest { margin-top: 20px; }
+        #install-path-display-dest code { background-color: var(--content-bg); padding: 10px 15px; border-radius: 6px; color: var(--text-muted); border: 1px solid var(--border-color); display: block; word-break: break-all; font-size: 0.9rem;}
+        #disk-error-dest { background-color: var(--error-light-bg); color: var(--error-color); border-left: 3px solid var(--error-color); padding: 10px 15px; margin-top: 15px; font-size: 0.9rem; border-radius: 4px; display: none; font-weight: 500;}
+
+        /* --- User Account Step --- */
+        #step-user-account { align-items: center; width: 100%; justify-content: center; }
+        #step-user-account h2 { justify-content: center; /* Center title */ }
+        .form-container {
+            background-color: var(--content-bg);
+            padding: 35px 45px; /* Slightly more padding */
+            border-radius: 10px; /* More rounding */
+            border: 1px solid var(--border-color);
+            width: 100%;
+            max-width: 480px; /* Wider form */
+            margin-top: 25px;
+            box-shadow: 0 6px 20px rgba(0,0,0, 0.2);
+            animation: fadeInForm 0.5s ease-out forwards; /* Add animation */
+            opacity: 0; /* Start hidden for animation */
+        }
+        @keyframes fadeInForm { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+
+        .form-group { margin-bottom: 28px; position: relative;} /* Relative for potential icon positioning */
+        .form-group label {
+            display: flex; /* Align icon and text */
+            align-items: center;
+            gap: 8px; /* Space between icon and text */
+            margin-bottom: 10px; /* More space below label */
+            font-weight: 500;
+            color: var(--text-muted);
+            font-size: 0.95rem;
+        }
+         .form-group label svg { /* Icon styling */
+            width: 18px; height: 18px; fill: var(--text-muted); opacity: 0.8;
+         }
+
+        .form-group input[type="text"], .form-group input[type="password"] {
+            width: 100%;
+            padding: 15px 20px; /* More padding */
+            background-color: var(--input-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            color: var(--text-color);
+            font-size: 1rem;
+            transition: border-color 0.2s ease, box-shadow 0.2s ease, background-color 0.2s ease;
+        }
+        .form-group input[type="text"]::placeholder,
+        .form-group input[type="password"]::placeholder {
+            color: var(--text-muted);
+            opacity: 0.7;
+        }
+        .form-group input[type="text"]:focus, .form-group input[type="password"]:focus {
+            outline: none;
+            border-color: var(--accent-color);
+            background-color: var(--content-bg); /* Lighter on focus */
+            box-shadow: 0 0 0 3px rgba(13, 110, 253, 0.25);
+        }
+        .form-group input.input-error { border-color: var(--error-color) !important; box-shadow: 0 0 0 3px rgba(220, 53, 69, 0.25) !important; }
+        .password-error-msg {
+            color: var(--error-color); font-size: 0.9rem; margin-top: 10px; display: none;
+            background-color: var(--error-light-bg); padding: 10px 15px; border-radius: 6px; border: 1px solid rgba(220, 53, 69, 0.3);
+            font-weight: 500;
+        }
+
+        /* --- Install Progress Step --- */
+        #step-installing { width: 100%; max-width: 650px; text-align: center; }
+        #step-installing h2 svg { display: none; }
+        .progress-container-install { width: 100%; height: 10px; background-color: var(--border-color); border-radius: 5px; overflow: hidden; margin: 35px 0 20px 0; }
+        .progress-bar-install { width: 0%; height: 100%; background: linear-gradient(90deg, var(--accent-hover), var(--accent-color)); border-radius: 5px; transition: width 0.4s linear; }
+        #progress-text-install { font-size: 1rem; color: var(--text-muted); text-align: center; height: 22px; }
+
+        /* --- Finish Step --- */
+        #step-finish h2 svg { display: none; }
+        #step-finish .finish-icon svg { width: 90px; height: 90px; fill: var(--success-color); margin-bottom: 35px; animation: popInFinish 0.5s 0.1s ease-out forwards; opacity: 0; transform: scale(0.8); }
+
+        /* --- Footer Buttons --- */
+        .footer-buttons button { background-color: var(--button-bg); color: var(--button-text); border: none; border-radius: 6px; cursor: pointer; transition: all 0.2s ease; margin-left: 15px; font-weight: 500; display: inline-flex; align-items: center; justify-content: center; padding: 12px 30px; font-size: 1rem; }
+        .footer-buttons button:hover { background-color: var(--button-hover-bg); }
+        .footer-buttons button.primary { background-color: var(--accent-color); color: var(--accent-text); }
+        .footer-buttons button.primary:hover { background-color: var(--accent-hover); }
+        #next-button { width: 56px; height: 56px; border-radius: 50%; padding: 0; background-color: var(--accent-color); box-shadow: 0 4px 10px rgba(0,0,0,0.2); }
+        #next-button:hover { background-color: var(--accent-hover); transform: translateY(-1px); box-shadow: 0 6px 12px rgba(0,0,0,0.25);}
+        #next-button:active { background-color: var(--accent-active); transform: translateY(0); box-shadow: 0 2px 5px rgba(0,0,0,0.2);}
+        #next-button svg { width: 24px; height: 24px; fill: var(--accent-text); }
+        #finish-button { padding: 12px 30px; }
+        .footer-buttons button:disabled { opacity: 0.5; cursor: not-allowed; background-color: var(--button-bg) !important; color: var(--text-muted) !important; box-shadow: none !important; transform: none !important; }
+        .footer-buttons button.primary:disabled { background-color: var(--accent-color) !important; opacity: 0.4 !important; }
+
+        /* --- Invisible Scrollbars --- */
+        .step, .language-list, .license-content { scrollbar-width: none; -ms-overflow-style: none; }
+        .step::-webkit-scrollbar, .language-list::-webkit-scrollbar, .license-content::-webkit-scrollbar { display: none; width: 0; height: 0; }
+
+        /* --- Animations --- */
+        @keyframes popInFinish { 0% { opacity: 0; transform: scale(0.8); } 100% { opacity: 1; transform: scale(1); } }
+
+    </style>
+</head>
+<body>
+     <!-- Inline SVG Defs - CRUCIAL -->
+     <svg width="0" height="0" style="position:absolute;">
+        <defs>
+          <symbol id="icon-check" viewBox="0 0 16 16"><path fill="currentColor" d="M13.854 3.646a.5.5 0 0 1 0 .708l-7 7a.5.5 0 0 1-.708 0l-3.5-3.5a.5.5 0 1 1 .708-.708L6.5 10.293l6.646-6.647a.5.5 0 0 1 .708 0z"/></symbol>
+          <symbol id="icon-document" viewBox="0 0 24 24"><path fill="currentColor" d="M14 2H6c-1.1 0-1.99.9-1.99 2L4 20c0 1.1.89 2 1.99 2H18c1.1 0 2-.9 2-2V8l-6-6zM6 20V4h7v5h5v11H6z"/></symbol>
+          <symbol id="icon-globe" viewBox="0 0 24 24"><path fill="currentColor" d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z"/></symbol>
+          <symbol id="icon-success-circle" viewBox="0 0 24 24"><path fill="currentColor" d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/></symbol>
+          <symbol id="icon-hdd" viewBox="0 0 24 24"><path fill="currentColor" d="M5 4h14a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2m11 9h-4v4h4v-4m-6 0H6v4h4v-4m4-6h-4v4h4V7m-6 0H6v4h4V7Z"/></symbol>
+          <symbol id="icon-arrow-right" viewBox="0 0 24 24"><path fill="currentColor" d="M8.59 16.59L13.17 12 8.59 7.41 10 6l6 6-6 6-1.41-1.41z"/></symbol>
+          <symbol id="icon-app-design" viewBox="0 0 24 24"><path fill="currentColor" d="M12 2L2 7l10 5 10-5-10-5zm0 11.5L3.5 9l-1.8 1 10.3 5.1L22 10l-1.8-1L12 13.5zm0 3.8L3.5 12.4l-1.8 1 10.3 5.1L22 13.4l-1.8-1L12 17.3z"/></symbol>
+          <symbol id="icon-app-code" viewBox="0 0 24 24"><path fill="currentColor" d="M9.4 16.6L4.8 12l4.6-4.6L8 6l-6 6 6 6 1.4-1.4zm5.2 0l4.6-4.6-4.6-4.6L16 6l6 6-6 6-1.4-1.4z"/></symbol>
+          <symbol id="icon-app-music" viewBox="0 0 24 24"><path fill="currentColor" d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z"/></symbol>
+          <symbol id="icon-app-generic" viewBox="0 0 24 24"><path fill="currentColor" d="M4 4h6v6H4zm10 0h6v6h-6zM4 14h6v6H4zm10 0h6v6h-6z"/></symbol>
+          <symbol id="icon-user" viewBox="0 0 24 24"><path fill="currentColor" d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/></symbol>
+          <symbol id="icon-lock" viewBox="0 0 24 24"><path fill="currentColor" d="M18 8h-1V6c0-2.76-2.24-5-5-5S7 3.24 7 6v2H6c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V10c0-1.1-.9-2-2-2zm-6 9c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2zM9 8V6c0-1.66 1.34-3 3-3s3 1.34 3 3v2H9z"/></symbol>
+        </defs>
+     </svg>
+
+    <div id="installer">
+        <div class="installer-body">
+            <!-- Step 1: Language Selection -->
+            <div class="step active" id="step-language">
+                 <h2>Welcome</h2>
+                 <p>Please select the language you want to use.</p>
+                 <ul class="language-list" id="language-options">
+                     <li class="language-item selected" data-lang="en">English</li>
+                     <li class="language-item" data-lang="fr">Français</li>
+                     <li class="language-item" data-lang="es">Español</li>
+                     <li class="language-item" data-lang="de">Deutsch</li>
+                     <li class="language-item" data-lang="it">Italiano</li>
+                     <li class="language-item" data-lang="pt">Português</li>
+                 </ul>
+                 <div class="language-graphic">
+                    <svg><use xlink:href="#icon-globe"/></svg>
+                 </div>
+            </div>
+
+            <!-- Step 2: Welcome / Intro -->
+            <div class="step" id="step-welcome">
+                 <div class="step-split-layout">
+                    <div class="content-area welcome-content">
+                         <h2>Install Wave App</h2>
+                         <p class="lead">Ready to get started with Wave?</p>
+                         <p>Here's what you might need:</p>
+                         <ul>
+                             <li>A stable internet connection</li>
+                             <li>Approx. 500MB of free disk space</li>
+                             <li>Administrator privileges (optional)</li>
+                         </ul>
+                         <p>Remember: Use responsibly and according to the terms.</p>
+                    </div>
+                     <div class="graphic-area">
+                        <div class="icon-grid">
+                            <div class="icon-grid-item"><svg><use xlink:href="#icon-app-design"/></svg></div>
+                            <div class="icon-grid-item"><svg><use xlink:href="#icon-app-code"/></svg></div>
+                            <div class="icon-grid-item"><svg><use xlink:href="#icon-app-music"/></svg></div>
+                            <div class="icon-grid-item"><svg><use xlink:href="#icon-app-generic"/></svg></div>
+                            <div class="icon-grid-item"><svg><use xlink:href="#icon-app-design"/></svg></div>
+                            <div class="icon-grid-item"><svg><use xlink:href="#icon-app-code"/></svg></div>
+                            <div class="icon-grid-item"><svg><use xlink:href="#icon-app-music"/></svg></div>
+                            <div class="icon-grid-item"><svg><use xlink:href="#icon-app-generic"/></svg></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Step 3: License Agreement -->
+            <div class="step" id="step-license">
+                 <div class="step-split-layout">
+                    <div class="graphic-area license-graphic">
+                         <svg><use xlink:href="#icon-document"/></svg>
+                    </div>
+                    <div class="content-area">
+                        <h2><svg><use xlink:href="#icon-document"/></svg>Wave Terms of Service</h2>
+                        <p>Please read the following terms carefully.</p>
+                        <div class="license-content" id="license-content">
+Wave is a simple, fast and beautiful open-source something.
+Copyright © 2024 Your Name/Company
+
+This program is free software: you can redistribute it and/or modify it under the terms of the MIT License.
+
+This program is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+You should have received a copy of the full License along with this program. If not, see <https://opensource.org/licenses/MIT>.
+
+This license applies to the core Wave application. Additional components or libraries included may be subject to their own licenses. Ensure you review all relevant license files. By proceeding, you agree to all applicable terms.
+                        </div>
+                        <label class="accept-label">
+                            <input type="checkbox" id="accept-license">
+                            <span class="custom-checkbox">
+                                 <svg><use xlink:href="#icon-check"/></svg>
+                            </span>
+                            I have read and accepted these terms.
+                        </label>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Step 4: Installation Destination -->
+             <div class="step" id="step-destination">
+                 <h2><svg><use xlink:href="#icon-hdd"/></svg>Choose Install Location</h2>
+                 <p>Select the drive where you want to install Wave. Make sure it has enough free space.</p>
+                 <div class="disk-selection-grid" id="disk-options-container">
+                     <!-- Disk options populated by JS -->
+                 </div>
+                 <div id="install-path-display-dest">
+                     <label style="display: block; margin-bottom: 8px; color: var(--text-muted); font-size: 0.9rem;">Full Installation Path:</label>
+                     <code>Please select a drive</code>
+                 </div>
+                 <p id="disk-error-dest"></p>
+             </div>
+
+            <!-- Step 5: Network Configuration -->
+            <div class="step" id="step-network">
+                 <h2><svg><use xlink:href="#icon-globe"/></svg>Configure Network</h2>
+                 <p>Select a network interface to configure or reuse current system settings.</p>
+                 <div class="disk-selection-grid" id="network-options-container">
+                     <!-- Interfaces populated by JS -->
+                 </div>
+                 <div id="network-method-container" style="display:none; margin-top:20px;">
+                     <label class="accept-label">
+                         <input type="radio" name="net-method" value="dhcp" checked>
+                         <span>Automatic (DHCP)</span>
+                     </label>
+                     <label class="accept-label" style="margin-left:20px;">
+                         <input type="radio" name="net-method" value="static">
+                         <span>Static IP</span>
+                     </label>
+                 </div>
+                 <div id="static-config-form" style="display:none; margin-top:20px;">
+                     <div class="form-group">
+                         <label>IP Address</label>
+                         <input type="text" id="net-ip" placeholder="e.g., 192.168.1.100">
+                     </div>
+                     <div class="form-group">
+                         <label>Netmask (CIDR)</label>
+                         <input type="text" id="net-mask" placeholder="e.g., 24">
+                     </div>
+                     <div class="form-group">
+                         <label>Gateway</label>
+                         <input type="text" id="net-gw" placeholder="e.g., 192.168.1.1">
+                     </div>
+                 </div>
+                 <p id="network-error" class="disk-error-msg" style="display:none; margin-top:10px;"></p>
+            </div>
+
+            <!-- Step 6: User Account Creation -->
+            <div class="step" id="step-user-account">
+                <h2><svg><use xlink:href="#icon-user"/></svg>Create Your Account</h2>
+                <p>Set up the primary user account for Wave.</p>
+                <div class="form-container">
+                    <div class="form-group">
+                        <label for="username"><svg><use xlink:href="#icon-user"/></svg>Username</label>
+                        <input type="text" id="username" name="username" required autocomplete="username" placeholder="e.g., john_doe">
+                    </div>
+                    <div class="form-group">
+                        <label for="password"><svg><use xlink:href="#icon-lock"/></svg>Password</label>
+                        <input type="password" id="password" name="password" required autocomplete="new-password" placeholder="Enter a strong password">
+                    </div>
+                    <div class="form-group">
+                        <label for="confirm-password"><svg><use xlink:href="#icon-lock"/></svg>Confirm Password</label>
+                        <input type="password" id="confirm-password" name="confirm-password" required autocomplete="new-password" placeholder="Re-enter your password">
+                        <p class="password-error-msg" id="password-error">Passwords do not match.</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Step 7: Installation Progress -->
+            <div class="step" id="step-installing">
+                 <h2>Installing Wave</h2>
+                 <p>Please wait while setup installs Wave on your computer.</p>
+                 <div class="progress-container-install">
+                    <div class="progress-bar-install" id="progress-bar"></div>
+                 </div>
+                 <p id="progress-text-install">Initializing...</p>
+            </div>
+
+            <!-- Step 8: Finish -->
+            <div class="step" id="step-finish">
+                 <div class="finish-icon">
+                    <svg><use xlink:href="#icon-success-circle"/></svg>
+                 </div>
+                <h2>Installation Complete</h2>
+                <p>Wave has been successfully installed.</p>
+                 <label class="accept-label" style="margin-top: 20px;">
+                    <input type="checkbox" id="launch-app-checkbox" checked>
+                    <span class="custom-checkbox">
+                         <svg><use xlink:href="#icon-check"/></svg>
+                    </span>
+                    Launch Wave now
+                 </label>
+            </div>
+        </div> <!-- End installer-body -->
+
+        <footer class="installer-footer">
+             <div class="footer-buttons">
+                <button id="back-button" style="display: none;">Back</button>
+                <button id="next-button" class="primary">
+                     <svg><use xlink:href="#icon-arrow-right"/></svg>
+                </button>
+                <button id="finish-button" class="primary" style="display: none;">Finish</button>
+             </div>
+        </footer> <!-- End installer-footer -->
+    </div> <!-- End installer -->
+
+    <script>
+        // JAVASCRIPT REMAINS EXACTLY THE SAME AS THE PREVIOUS (fixed) VERSION
+        document.addEventListener('DOMContentLoaded', () => {
+            // --- Elements ---
+            const installerBody = document.querySelector('.installer-body');
+            const steps = document.querySelectorAll('.installer-body .step');
+            const nextButton = document.getElementById('next-button');
+            const backButton = document.getElementById('back-button');
+            const finishButton = document.getElementById('finish-button');
+            const languageOptionsContainer = document.getElementById('language-options');
+            const acceptLicenseCheckbox = document.getElementById('accept-license');
+            const diskOptionsContainer = document.getElementById('disk-options-container');
+            const installPathCode = document.querySelector('#install-path-display-dest code');
+            const diskErrorDest = document.getElementById('disk-error-dest');
+            const usernameInput = document.getElementById('username');
+            const passwordInput = document.getElementById('password');
+            const confirmPasswordInput = document.getElementById('confirm-password');
+            const passwordErrorMsg = document.getElementById('password-error');
+            const progressBar = document.getElementById('progress-bar');
+            const progressText = document.getElementById('progress-text-install');
+            const launchAppCheckbox = document.getElementById('launch-app-checkbox');
+            const networkOptionsContainer = document.getElementById('network-options-container');
+            const networkMethodContainer = document.getElementById('network-method-container');
+            const staticConfigForm = document.getElementById('static-config-form');
+            const netIpInput = document.getElementById('net-ip');
+            const netMaskInput = document.getElementById('net-mask');
+            const netGwInput = document.getElementById('net-gw');
+            const networkErrorEl = document.getElementById('network-error');
+
+            // --- Config & Constants ---
+            const REQUIRED_SPACE_MB = 500;
+            const STEPS_CONFIG = [
+                { id: 'step-language' }, { id: 'step-welcome' }, { id: 'step-license' },
+                { id: 'step-destination' }, { id: 'step-network' }, { id: 'step-user-account' },
+                { id: 'step-installing' }, { id: 'step-finish' }
+            ];
+
+            // --- State ---
+            let currentStep = 0;
+            let selectedLanguage = 'en';
+            let selectedDriveInfo = null;
+            let installInterval = null;
+            let hasRenderedDisks = false;
+            let hasRenderedNetwork = false;
+            let selectedInterface = null;
+
+            // --- Functions ---
+            function formatBytes(bytes, decimals = 1) {
+                 if (!+bytes) return '0 Bytes'
+                 const k = 1024
+                 const dm = decimals < 0 ? 0 : decimals
+                 const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB']
+                 const i = Math.floor(Math.log(bytes) / Math.log(k))
+                 return `${parseFloat((bytes / Math.pow(k, i)).toFixed(dm))} ${sizes[i]}`
+            }
+            function MBytesToBytes(mb) { return mb * 1024 * 1024; }
+
+            function renderDiskOptions() {
+                diskOptionsContainer.innerHTML = '';
+                let hasValidSelection = false;
+                const errorEl = diskErrorDest;
+                errorEl.style.display = 'none';
+                fetch('/api/disks')
+                    .then(res => res.json())
+                    .then(disks => {
+                        disks.forEach((disk, index) => {
+                            const freeBytes = disk.free_bytes;
+                            const totalBytes = disk.total_bytes;
+                            const usedBytes = totalBytes - freeBytes;
+                            const usedPercentage = totalBytes > 0 ? (usedBytes / totalBytes) * 100 : 0;
+                            const hasEnoughSpace = freeBytes >= REQUIRED_SPACE_MB * 1024 * 1024;
+                            const option = document.createElement('div');
+                            option.classList.add('disk-option');
+                            option.setAttribute('data-path', disk.path);
+                            if (!hasEnoughSpace) option.classList.add('disabled');
+                            option.innerHTML = `
+                                <div class="disk-option-info">
+                                    <div class="disk-option-icon"><svg><use xlink:href="#icon-hdd"/></svg></div>
+                                    <div class="disk-option-details">
+                                        <span class="disk-option-name">${disk.model}</span>
+                                        <span class="disk-option-space">${formatBytes(freeBytes)} free / ${formatBytes(totalBytes)} total</span>
+                                        <span class="disk-option-required">Requires: ${formatBytes(REQUIRED_SPACE_MB * 1024 * 1024)}</span>
+                                    </div>
+                                </div>
+                                <div class="disk-capacity-bar">
+                                    <div class="disk-capacity-fill" style="width: ${usedPercentage.toFixed(1)}%;"></div>
+                                </div>
+                                ${!hasEnoughSpace ? '<div class="disk-error-msg">Insufficient space</div>' : ''}
+                            `;
+                            option.addEventListener('click', () => {
+                                errorEl.style.display = 'none';
+                                if (option.classList.contains('disabled')) {
+                                    errorEl.textContent = `Not enough free space on ${disk.path}. Requires ${formatBytes(REQUIRED_SPACE_MB * 1024 * 1024)}.`;
+                                    errorEl.style.display = 'block';
+                                    diskOptionsContainer.querySelectorAll('.disk-option.selected').forEach(o => o.classList.remove('selected'));
+                                    selectedDriveInfo = null;
+                                } else {
+                                    diskOptionsContainer.querySelectorAll('.disk-option.selected').forEach(o => o.classList.remove('selected'));
+                                    option.classList.add('selected');
+                                    selectedDriveInfo = { path: disk.path, free: freeBytes, total: totalBytes, element: option };
+                                }
+                                installPathCode.textContent = `${disk.path}`;
+                                updateButtonStates();
+                            });
+                            diskOptionsContainer.appendChild(option);
+                        });
+                    })
+                    .catch(err => {
+                        errorEl.textContent = `Error loading disks: ${err}`;
+                        errorEl.style.display = 'block';
+                    })
+                    .finally(() => { hasRenderedDisks = true; });
+            }
+
+            function renderNetworkOptions() {
+                networkOptionsContainer.innerHTML = '';
+                networkErrorEl.style.display = 'none';
+                fetch('/api/network/interfaces')
+                    .then(res => res.json())
+                    .then(ifaces => {
+                        ifaces.forEach(({name}) => {
+                            const option = document.createElement('div');
+                            option.classList.add('disk-option');
+                            option.setAttribute('data-iface', name);
+                            option.innerHTML = `<span>${name}</span>`;
+                            option.addEventListener('click', () => {
+                                networkErrorEl.style.display = 'none';
+                                networkOptionsContainer.querySelectorAll('.disk-option.selected').forEach(o => o.classList.remove('selected'));
+                                option.classList.add('selected');
+                                selectedInterface = name;
+                                networkMethodContainer.style.display = 'block';
+                                updateNetworkForm();
+                                updateButtonStates();
+                            });
+                            networkOptionsContainer.appendChild(option);
+                        });
+                    })
+                    .catch(err => {
+                        networkErrorEl.textContent = `Error loading interfaces: ${err}`;
+                        networkErrorEl.style.display = 'block';
+                    })
+                    .finally(() => { hasRenderedNetwork = true; });
+            }
+
+            function updateNetworkForm() {
+                const method = networkMethodContainer.querySelector('input[name="net-method"]:checked')?.value;
+                if (method === 'static') {
+                    staticConfigForm.style.display = 'block';
+                } else {
+                    staticConfigForm.style.display = 'none';
+                    networkErrorEl.style.display = 'none';
+                }
+            }
+
+            function validateNetworkConfig() {
+                if (!selectedInterface) return false;
+                const method = networkMethodContainer.querySelector('input[name="net-method"]:checked')?.value;
+                if (method === 'static') {
+                    return netIpInput.value.trim() && netMaskInput.value.trim() && netGwInput.value.trim();
+                }
+                return true;
+            }
+
+            function validateUserAccount() {
+                const username = usernameInput ? usernameInput.value.trim() : '';
+                const password = passwordInput ? passwordInput.value : '';
+                const confirmPassword = confirmPasswordInput ? confirmPasswordInput.value : '';
+                let isValid = true;
+                if (!passwordErrorMsg || !passwordInput || !confirmPasswordInput) return false;
+                passwordErrorMsg.style.display = 'none';
+                passwordInput.classList.remove('input-error');
+                confirmPasswordInput.classList.remove('input-error');
+                if (username === '') isValid = false;
+                if (password === '') isValid = false;
+                if (confirmPassword === '' || password !== confirmPassword) {
+                    if (confirmPassword !== '') {
+                        passwordErrorMsg.style.display = 'block';
+                        passwordInput.classList.add('input-error');
+                        confirmPasswordInput.classList.add('input-error');
+                    }
+                    isValid = false;
+                }
+                return isValid;
+            }
+
+            function updateButtonStates() {
+                 if (!nextButton || !finishButton || !acceptLicenseCheckbox) return;
+                 const currentStepId = STEPS_CONFIG[currentStep]?.id;
+                 if (!currentStepId) return;
+                 const isLastStep = currentStep === STEPS_CONFIG.length - 1;
+                 const isInstallStep = currentStepId === 'step-installing';
+                 nextButton.style.display = !isInstallStep && !isLastStep ? 'inline-flex' : 'none';
+                 finishButton.style.display = isLastStep ? 'inline-flex' : 'none';
+                 let disableNext = false;
+                 if (currentStepId === 'step-license') {
+                     disableNext = !acceptLicenseCheckbox.checked;
+                 } else if (currentStepId === 'step-destination') {
+                     disableNext = !selectedDriveInfo;
+                 } else if (currentStepId === 'step-network') {
+                     disableNext = !validateNetworkConfig();
+                 } else if (currentStepId === 'step-user-account') {
+                     disableNext = !validateUserAccount();
+                 }
+                 nextButton.disabled = disableNext;
+             }
+
+            function updateUI() {
+                steps.forEach((step, index) => {
+                    const isActive = index === currentStep;
+                    const isLeaving = step.classList.contains('active') && !isActive;
+                    step.classList.toggle('active', isActive);
+                    step.classList.toggle('leaving', isLeaving);
+                    if (!isActive && !isLeaving) step.classList.remove('active', 'leaving');
+                });
+                if (currentStep < 0 || currentStep >= STEPS_CONFIG.length) { console.error("Invalid currentStep:", currentStep); return; }
+                const currentStepId = STEPS_CONFIG[currentStep].id;
+                if (currentStepId === 'step-destination') {
+                    if (!hasRenderedDisks) renderDiskOptions();
+                    if(diskErrorDest) diskErrorDest.style.display = diskErrorDest.textContent ? 'block' : 'none';
+                } else if (currentStepId === 'step-network') {
+                    if (!hasRenderedNetwork) renderNetworkOptions();
+                    networkErrorEl.style.display = networkErrorEl.textContent ? 'block' : 'none';
+                } else {
+                    hasRenderedDisks = false;
+                    hasRenderedNetwork = false;
+                }
+                 if (currentStepId === 'step-user-account' && passwordErrorMsg) {
+                     passwordErrorMsg.style.display = 'none';
+                     if(passwordInput) passwordInput.classList.remove('input-error');
+                     if(confirmPasswordInput) confirmPasswordInput.classList.remove('input-error');
+                 }
+                if (currentStepId === 'step-installing') { startInstallation(); }
+                else { stopInstallation(); }
+                updateButtonStates();
+            }
+
+            function startInstallation() {
+                 let progress = 0;
+                 progressBar.style.width = '0%';
+                 progressText.textContent = 'Preparing...';
+                 clearInterval(installInterval);
+                 installInterval = setInterval(() => {
+                     progress += Math.random() * 15;
+                     if (progress >= 100) {
+                         progress = 100;
+                         progressBar.style.width = '100%';
+                         progressText.textContent = 'Installation Complete!';
+                         clearInterval(installInterval);
+                         setTimeout(goToNextStep, 800);
+                     } else {
+                         progressBar.style.width = progress + '%';
+                          if (progress < 40) { progressText.textContent = 'Copying files...'; }
+                          else if (progress < 80) { progressText.textContent = 'Configuring system...'; }
+                          else { progressText.textContent = 'Finalizing...'; }
+                     }
+                 }, 300);
+            }
+            function stopInstallation() {
+                clearInterval(installInterval);
+                installInterval = null;
+            }
+
+            function goToNextStep() {
+                 if (currentStep < STEPS_CONFIG.length - 1) {
+                     const currentStepId = STEPS_CONFIG[currentStep]?.id;
+                     if (!currentStepId) return;
+                     if (currentStepId === 'step-destination' && !selectedDriveInfo) {
+                         if(diskErrorDest) {
+                            diskErrorDest.textContent = `Please select a valid drive with enough space.`;
+                            diskErrorDest.style.display = 'block';
+                         }
+                         return;
+                     }
+                     if (currentStepId === 'step-network' && !validateNetworkConfig()) {
+                         if (!selectedInterface) {
+                             networkErrorEl.textContent = 'Please select a network interface.';
+                         } else {
+                             networkErrorEl.textContent = 'Please complete static IP fields.';
+                         }
+                         networkErrorEl.style.display = 'block';
+                         return;
+                     }
+                     if (currentStepId === 'step-user-account' && !validateUserAccount()) {
+                         updateButtonStates();
+                         return;
+                     }
+                    hasRenderedDisks = false;
+                    currentStep++;
+                    updateUI();
+                }
+            }
+
+            // --- Event Listeners ---
+            if (nextButton) nextButton.addEventListener('click', goToNextStep);
+            if (finishButton) finishButton.addEventListener('click', () => {
+                 const launchApp = launchAppCheckbox.checked;
+                 alert(`Installer finished. Closing. ${launchApp ? 'Wave would launch.' : ''}`);
+                 document.body.innerHTML = `<div style="display:flex; align-items:center; justify-content:center; height:100vh; background-color: var(--bg-color); color: var(--text-muted);">Window Closed</div>`;
+            });
+            if (languageOptionsContainer) languageOptionsContainer.addEventListener('click', (e) => {
+                 if (e.target && e.target.classList.contains('language-item')) {
+                     languageOptionsContainer.querySelectorAll('.language-item').forEach(item => item.classList.remove('selected'));
+                     e.target.classList.add('selected');
+                     selectedLanguage = e.target.dataset.lang;
+                     console.log("Language selected:", selectedLanguage);
+                     updateButtonStates();
+                 }
+             });
+            if (acceptLicenseCheckbox) acceptLicenseCheckbox.addEventListener('change', updateButtonStates);
+            const userAccountInputs = [usernameInput, passwordInput, confirmPasswordInput];
+             userAccountInputs.forEach(input => {
+                 if (input) { input.addEventListener('input', updateButtonStates); }
+             });
+            if (networkMethodContainer) {
+                networkMethodContainer.addEventListener('change', () => {
+                    updateNetworkForm();
+                    updateButtonStates();
+                });
+            }
+
+            // --- Initial Setup ---
+            updateUI();
+        });
+    </script>
+
+</body>
+</html>
