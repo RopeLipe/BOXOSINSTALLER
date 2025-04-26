@@ -199,28 +199,55 @@ def api_install():
             if target_device_path:
                 print(f"DEBUG: Calculating default layout for {target_device_path}")
                 try:
-                    # Define standard UEFI layout using dictionary format for sizes
+                    # --- Define Partitions based on percentage for / and /home --- 
+                    # /boot partition (UEFI)
+                    boot_size_mib = 512 
                     boot_part = {
                         "status": "create", "type": "primary",
-                        "start": {"unit": "MiB", "value": 1, "sector_size": 512}, # 1MiB offset
-                        "length": {"unit": "GiB", "value": 1, "sector_size": 512}, # 1GiB size
-                        "mountpoint": "/boot", "fs_type": "fat32", "flags": ["boot", "esp"]
+                        "start": {"unit": "MiB", "value": 1},
+                        "size": {"unit": "MiB", "value": boot_size_mib}, # Fixed size for boot
+                        "fs_type": "fat32",
+                        "mountpoint": "/boot",
+                        "flags": ["boot", "esp"],
+                        "mount_options": [],
+                        "btrfs": []
                     }
+
+                    # / (root) partition - Percentage (e.g., 30%)
+                    root_percentage = 30 # Adjust as needed
+                    root_start_mib = 1 + boot_size_mib
                     root_part = {
                         "status": "create", "type": "primary",
-                        "start": {"unit": "MiB", "value": 1025, "sector_size": 512}, # Start after boot (1GiB + 1MiB)
-                        # Omitting "length" should imply using the rest of the disk
-                        "mountpoint": "/", "fs_type": filesystem_str
+                        "start": {"unit": "MiB", "value": root_start_mib},
+                        "size": {"unit": "Percent", "value": root_percentage},
+                        "fs_type": filesystem_str,
+                        "mountpoint": "/",
+                        "flags": [],
+                        "mount_options": [],
+                        "btrfs": []
+                    }
+
+                    # /home partition - Takes the rest of the space
+                    # Start immediately after root. Archinstall calculates this if start isn't precise enough
+                    home_part = {
+                        "status": "create", "type": "primary",
+                        # Omitting start lets the partitioner place it after root
+                        "size": {"unit": "Percent", "value": 100}, # 100% of remaining space
+                        "fs_type": filesystem_str,
+                        "mountpoint": "/home",
+                        "flags": [],
+                        "mount_options": [],
+                        "btrfs": []
                     }
 
                     device_mod = {
                         "device": target_device_path,
                         "wipe": wipe_disk,
-                        "partitions": [boot_part, root_part]
+                        "partitions": [boot_part, root_part, home_part]
                     }
-                    # Set the final config to use this explicit layout
+                    # Set the final config to use this explicit layout, including config_type
                     disk_cfg = {
-                        "config_type": "manual", # Explicitly state we are providing the layout
+                        "config_type": "default_layout", # Use type from example
                         "device_modifications": [device_mod]
                     }
                     print(f"DEBUG: Calculated default layout: {disk_cfg}")
