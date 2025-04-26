@@ -234,7 +234,16 @@ def api_install():
         # UI toolkit
         "uikit": data.get("uikit", False),
         # profile config
-        "profile_config": profile_cfg
+        "profile_config": profile_cfg,
+        # user account to create (must be a list of user objects)
+        "user_config": {
+            "users": [
+                {
+                    "username": data.get("user", {}).get("username"),
+                    "password": data.get("user", {}).get("password")
+                }
+            ]
+        },
     }
     # debug-print the final config for troubleshooting
     print(f"DEBUG: final archinstall config: {config}")
