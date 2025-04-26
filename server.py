@@ -215,8 +215,8 @@ def api_install():
                         "status": "create", "type": "primary",
                         "dev_path": None,
                         "obj_id": 0,
-                        "start": {"unit": "mib", "value": boot_start_mib, "sector_size": {"unit": "B", "value": 512}},
-                        "size": {"unit": "gib", "value": boot_size_gib, "sector_size": {"unit": "B", "value": 512}},
+                        "start": {"unit": "MiB", "value": boot_start_mib, "sector_size": {"unit": "B", "value": 512}},
+                        "size": {"unit": "GiB", "value": boot_size_gib, "sector_size": {"unit": "B", "value": 512}},
                         "fs_type": "fat32",
                         "mountpoint": "/boot",
                         "flags": [], # Let archinstall handle flags like esp, boot
@@ -240,8 +240,8 @@ def api_install():
                         "status": "create", "type": "primary",
                         "dev_path": None,
                         "obj_id": 1,
-                        "start": {"unit": "b", "value": root_start_bytes_calc, "sector_size": {"unit": "B", "value": 512}},
-                        "size": {"unit": "b", "value": root_size_bytes_calc, "sector_size": {"unit": "B", "value": 512}},
+                        "start": {"unit": "B", "value": root_start_bytes_calc, "sector_size": {"unit": "B", "value": 512}},
+                        "size": {"unit": "B", "value": root_size_bytes_calc, "sector_size": {"unit": "B", "value": 512}},
                         "fs_type": filesystem_str,
                         "mountpoint": "/",
                         "flags": [],
@@ -347,11 +347,11 @@ def api_install():
         "user_config": {
             "users": [
                 {
-                    "username": data.get("user", {}).get("username"),
-                    "password": data.get("user", {}).get("password")
+                    "password": data.get("user", {}).get("password"),
+                    "username": data.get("user", {}).get("username")
                 }
             ]
-        },
+        }
     }
     # debug-print the final config for troubleshooting
     print(f"DEBUG: final archinstall config: {config}")
