@@ -785,10 +785,17 @@ This license applies to the core Wave application. Additional components or libr
                         username: usernameInput.value,
                         password: passwordInput.value
                     },
-                    // tell Archinstall to use its default layout for this drive
-                    "harddrive": { path: selectedDriveInfo.path },
-                    // choose filesystem for root
-                    "filesystem": "ext4"
+                    // Use Archinstall's default layout logic
+                    "disk_config": {
+                        config_type: "default_layout", // Signal default layout
+                        device_modifications: [
+                            {
+                                device: selectedDriveInfo.path, // Target drive
+                                wipe: true // Wipe it first
+                            }
+                        ]
+                    },
+                    "filesystem": "ext4" // Specify root filesystem type
                 };
                 // kick off the installer
                 fetch('/api/install', {
