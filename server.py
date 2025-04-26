@@ -171,10 +171,10 @@ def api_install():
     }
     lang_code = data.get("archinstall-language")
     lang_name = lang_map.get(lang_code, lang_code)
-    # Prepare defaults for disk, network, and profile
-    disk_cfg = data.get("disk_config")
-    if not isinstance(disk_cfg, dict) or not disk_cfg:
-        disk_cfg = {"config_type": "default_layout", "wipe": True}
+    # drive selection: just pass the harddrive path and filesystem
+    harddrive = data.get("harddrive", {})
+    filesystem = data.get("filesystem", "ext4")
+    # Prepare defaults for network and profile
     network_cfg = {"type": "nm"}
     profile_cfg = {
         "gfx_driver": None,
@@ -199,8 +199,10 @@ def api_install():
         "bootloader": data.get("bootloader", "systemd-boot"),
         # debugging
         "debug": data.get("debug", False),
-        # disk layout: default_layout autopartition
-        "disk_config": disk_cfg,
+        # drive to install on (auto-partition default layout)
+        "harddrive": harddrive,
+        # filesystem to format root on
+        "filesystem": filesystem,
         # hostname
         "hostname": data.get("hostname", "archlinux"),
         # kernels
