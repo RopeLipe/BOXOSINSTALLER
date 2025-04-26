@@ -211,27 +211,33 @@ def api_install():
         json.dump(config, f)
     # Start installation in background thread
     def run_install():
-        # Windows: simulate progress events
-        if IS_WINDOWS:
-            progress_buffer.clear()
-            for pct in range(0, 101, 10):
-                progress_buffer.append({'percent': pct, 'step': f'Step {pct/10}'})
-                time.sleep(0.2)
-            progress_buffer.append({'status': 'done', 'percent': 100, 'message': 'Completed'})
-            return
-        # Linux: run real archinstall in JSON mode
-        cmd = ['python', '-m', 'archinstall', '--config', config_path, '--script', 'guided', '--json']
-        proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
-        for line in proc.stdout:
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                msg = json.loads(line)
-            except json.JSONDecodeError:
-                msg = {'message': line}
-            progress_buffer.append(msg)
-        proc.wait()
+        try:
+            # Windows: simulate progress events
+            if IS_WINDOWS:
+                progress_buffer.clear()
+                for pct in range(0, 101, 10):
+                    progress_buffer.append({'percent': pct, 'step': f'Step {pct/10}'})
+                    time.sleep(0.2)
+                progress_buffer.append({'status': 'done', 'percent': 100, 'message': 'Completed'})
+                return
+            # Linux: run real archinstall in JSON mode
+            cmd = ['python', '-m', 'archinstall', '--config', config_path, '--script', 'guided', '--json']
+            proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+            for line in proc.stdout:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    msg = json.loads(line)
+                except json.JSONDecodeError:
+                    msg = {'message': line}
+                progress_buffer.append(msg)
+            proc.wait()
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            # push error into the progress buffer for UI feedback
+            progress_buffer.append({'status': 'error', 'message': str(e)})
     Thread(target=run_install, daemon=True).start()
     return jsonify({'status': 'running'})
 
