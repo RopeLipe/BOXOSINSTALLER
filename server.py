@@ -199,13 +199,17 @@ def api_install():
             if target_device_path:
                 print(f"DEBUG: Calculating default layout for {target_device_path}")
                 try:
-                    # Define standard UEFI layout (adjust sizes as needed)
+                    # Define standard UEFI layout using dictionary format for sizes
                     boot_part = {
-                        "status": "create", "type": "primary", "start": "1MiB", "length": "1GiB",
+                        "status": "create", "type": "primary",
+                        "start": {"unit": "MiB", "value": 1}, # 1MiB offset
+                        "length": {"unit": "GiB", "value": 1}, # 1GiB size
                         "mountpoint": "/boot", "fs_type": "fat32", "flags": ["boot", "esp"]
                     }
                     root_part = {
-                        "status": "create", "type": "primary", "start": "1025MiB", "length": "100%", # Use 100% to take remaining space
+                        "status": "create", "type": "primary",
+                        "start": {"unit": "MiB", "value": 1025}, # Start after boot (1GiB + 1MiB)
+                        # Omitting "length" should imply using the rest of the disk
                         "mountpoint": "/", "fs_type": filesystem_str
                     }
 
@@ -215,7 +219,10 @@ def api_install():
                         "partitions": [boot_part, root_part]
                     }
                     # Set the final config to use this explicit layout
-                    disk_cfg = {"device_modifications": [device_mod]}
+                    disk_cfg = {
+                        "config_type": "manual", # Explicitly state we are providing the layout
+                        "device_modifications": [device_mod]
+                    }
                     print(f"DEBUG: Calculated default layout: {disk_cfg}")
 
                 except Exception as calc_err:
