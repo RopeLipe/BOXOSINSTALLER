@@ -507,8 +507,9 @@ def api_install():
     cmd = ['python', '-m', 'archinstall',
            '--config', config_path,
            '--creds', creds_path,
-           # '--script', 'guided', # Keep commented
-           # '--silent', # Keep commented
+           '--silent', # ADD silent flag back, hoping it works with PTY
+           '--json', # Use JSON output with PTY
+           '--skip-version-check', # Skip the problematic version check
            '--service-log-level', 'DEBUG'
            ]
     print(f"DEBUG: preparing to launch PTY command: {cmd}")
@@ -573,29 +574,33 @@ def api_install_logs():
         if os.path.exists(progress_file_path):
             # Read the whole file content now, as it's written by the thread
             with open(progress_file_path, 'r', encoding='utf-8') as f:
-                 # Attempt to parse line by line as JSON streams
                  file_content = f.read()
                  # Split content into potential JSON objects (assuming they are newline-separated)
-                 json_lines = file_content.strip().split('\n')
-                 for line in json_lines:
+                 raw_lines = file_content.strip().split('\n')
+                 for line in raw_lines:
                       line = line.strip()
                       if not line:
                           continue
                       try:
-                          # Handle potential multiple JSON objects per line if not newline separated correctly
-                          # This is tricky; assuming one JSON object per line for now.
+                          # Attempt to parse the line as a JSON object
                           msg = json.loads(line)
-                          events.append(msg)
+                          # Ensure it's a dictionary (archinstall usually outputs dicts)
+                          if isinstance(msg, dict):
+                              events.append(msg)
+                          else:
+                              # Handle non-dict JSON (e.g., just a string "hello") - unlikely from archinstall
+                              print(f"RAW LOG LINE (non-dict JSON): {line}")
+                              events.append({'message': f'Non-object JSON: {line}', 'level': 'RAW'})
                       except json.JSONDecodeError:
-                          # Append non-JSON lines as simple messages for debugging
-                          print(f"RAW LOG LINE (non-JSON): {line}")
-                          # Avoid flooding with raw lines if install succeeds but has extra output
-                          # Maybe only add the *last* non-JSON line?
-                          if not events or events[-1].get('message') != line:
-                              events.append({'message': line, 'level': 'INFO'}) # Add level for consistency
+                          # Log and append non-JSON lines as simple messages for debugging
+                          # Only log if it's different from the last raw message to avoid spam
+                          if not events or events[-1].get('level') != 'RAW' or events[-1].get('message') != line:
+                               print(f"RAW LOG LINE (non-JSON): {line}")
+                               events.append({'message': line, 'level': 'RAW'})
                       except Exception as parse_err:
-                           print(f"ERROR parsing line: {line} - {parse_err}")
-                           events.append({'message': f"Error parsing line: {line}", 'level': 'ERROR'})
+                           # Catch other potential errors during processing
+                           print(f"ERROR processing line: {line} - {parse_err}")
+                           events.append({'message': f"Error processing line: {line}", 'level': 'ERROR'})
 
     except FileNotFoundError:
         print(f"WARN: Progress file {progress_file_path} not found yet.")
@@ -603,7 +608,7 @@ def api_install_logs():
         events.append({'message': 'Installation starting, waiting for progress...', 'level': 'INFO'})
     except Exception as e:
         print(f"ERROR: Could not read progress file {progress_file_path}: {e}")
-        events.append({'status': 'error', 'message': f'Error reading progress log: {e}'}) # Keep old status field?
+        events.append({'level': 'ERROR', 'message': f'Error reading progress log: {e}'})
 
     # Return all collected events
     return jsonify(events)

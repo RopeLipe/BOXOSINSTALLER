@@ -763,21 +763,85 @@ This license applies to the core Box application. Additional components or libra
                 fetch('/api/install/logs')
                     .then(r => r.json())
                     .then(events => {
-                        const last = events[events.length-1] || {};
-                        // update progress bar and text
-                        if (last.percent !== undefined) {
-                            progressBar.style.width = last.percent + '%';
-                            progressText.textContent = last.step || last.message || '';
-                        } else if (last.message) {
-                            progressText.textContent = last.message;
+                        if (!Array.isArray(events) || events.length === 0) return;
+
+                        // Find the *last* event with progress information
+                        let lastProgressEvent = null;
+                        for (let i = events.length - 1; i >= 0; i--) {
+                            if (events[i] && events[i].details && typeof events[i].details.percentage === 'number') {
+                                lastProgressEvent = events[i];
+                                break;
+                            }
                         }
-                        // finish when done
-                        if (last.status === 'done' || last.percent === 100) {
+
+                        // Update progress bar based on the last relevant event
+                        if (lastProgressEvent) {
+                            const percent = Math.max(0, Math.min(100, lastProgressEvent.details.percentage));
+                            progressBar.style.width = percent + '%';
+
+                            // Construct a meaningful progress message
+                            let progressMsg = lastProgressEvent.message || 'Processing...';
+                            if (lastProgressEvent.details.step) {
+                                progressMsg = `Step: ${lastProgressEvent.details.step}`; 
+                                if (lastProgressEvent.message && lastProgressEvent.details.step !== lastProgressEvent.message) {
+                                     progressMsg += ` - ${lastProgressEvent.message}`;
+                                }
+                            }
+                            // Add package details if available
+                             if (lastProgressEvent.details.current_pkg) {
+                                 progressMsg += ` (${lastProgressEvent.details.current_pkg})`;
+                                 if(lastProgressEvent.details.speed_human) progressMsg += ` @ ${lastProgressEvent.details.speed_human}`;
+                             }
+                             progressText.textContent = progressMsg;
+
+                             // Check for completion based on percentage
+                             if (percent >= 100) {
+                                console.log("Progress reached 100%, stopping poll and moving next.");
+                                clearInterval(logPollInterval);
+                                logPollInterval = null;
+                                setTimeout(goToNextStep, 800); // Small delay after 100%
+                             }
+
+                        } else {
+                             // If no progress event found yet, use the last message overall
+                             const lastEvent = events[events.length - 1] || {};
+                             // Avoid showing RAW messages as primary status if possible
+                             let statusMsg = 'Waiting for progress...';
+                             if (lastEvent.message && lastEvent.level !== 'RAW') {
+                                  statusMsg = lastEvent.message;
+                             }
+                             progressText.textContent = statusMsg;
+                        }
+
+                        // Alternative check for completion message (e.g., "Installation completed")
+                         const finalEvent = events[events.length - 1];
+                        if (logPollInterval && finalEvent && finalEvent.message && 
+                            (finalEvent.message.toLowerCase().includes('installation completed') || 
+                             finalEvent.message.toLowerCase().includes('finished installation'))) {
+                             console.log("Found completion message, stopping poll.");
+                             progressBar.style.width = '100%'; // Ensure bar is full
+                             progressText.textContent = finalEvent.message; // Show final message
                             clearInterval(logPollInterval);
-                            setTimeout(goToNextStep, 500);
+                            logPollInterval = null;
+                            setTimeout(goToNextStep, 800);
+                        }
+
+                        // Handle potential error messages
+                        if (finalEvent && finalEvent.level && finalEvent.level.toUpperCase() === 'ERROR') {
+                            console.error("Installation error detected:", finalEvent.message);
+                            progressText.textContent = `Error: ${finalEvent.message}`;
+                            progressBar.style.backgroundColor = 'var(--error-color)'; // Indicate error on bar
+                            clearInterval(logPollInterval);
+                            logPollInterval = null;
+                            // Maybe disable next button or show an error state?
+                            // nextButton.disabled = true;
                         }
                     })
-                    .catch(() => {});
+                    .catch((err) => {
+                         console.error("Error fetching install logs:", err);
+                         // Don't stop polling on fetch error, maybe network hiccup
+                         progressText.textContent = 'Error fetching logs...';
+                    });
             }
             function startInstallation() {
                 // disable navigation
