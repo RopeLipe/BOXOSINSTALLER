@@ -205,6 +205,7 @@ def api_install():
                     boot_size_mib = 512 
                     boot_part = {
                         "status": "create", "type": "primary",
+                        "dev_path": None,
                         "start": {"unit": "MiB", "value": 1, "sector_size": sector_size_dict},
                         "size": {"unit": "MiB", "value": boot_size_mib, "sector_size": sector_size_dict},
                         "fs_type": "fat32",
@@ -219,6 +220,7 @@ def api_install():
                     root_start_mib = 1 + boot_size_mib
                     root_part = {
                         "status": "create", "type": "primary",
+                        "dev_path": None,
                         "start": {"unit": "MiB", "value": root_start_mib, "sector_size": sector_size_dict},
                         "size": {"unit": "Percent", "value": root_percentage, "sector_size": sector_size_dict},
                         "fs_type": filesystem_str,
@@ -232,6 +234,7 @@ def api_install():
                     # Start immediately after root. Archinstall calculates this if start isn't precise enough
                     home_part = {
                         "status": "create", "type": "primary",
+                        "dev_path": None,
                         # Omitting start lets the partitioner place it after root
                         "size": {"unit": "Percent", "value": 100, "sector_size": sector_size_dict}, # 100% of remaining space
                         "fs_type": filesystem_str,
