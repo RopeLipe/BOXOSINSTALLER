@@ -199,13 +199,14 @@ def api_install():
             if target_device_path:
                 print(f"DEBUG: Calculating default layout for {target_device_path}")
                 try:
-                    # --- Define Partitions based on percentage for / and /home --- 
+                    # --- Define Partitions using dicts for sizes and sector_size --- 
+                    sector_size_dict = {"unit": "B", "value": 512} # Default sector size as dict
                     # /boot partition (UEFI)
                     boot_size_mib = 512 
                     boot_part = {
                         "status": "create", "type": "primary",
-                        "start": {"unit": "MiB", "value": 1, "sector_size": None},
-                        "size": {"unit": "MiB", "value": boot_size_mib, "sector_size": None},
+                        "start": {"unit": "MiB", "value": 1, "sector_size": sector_size_dict},
+                        "size": {"unit": "MiB", "value": boot_size_mib, "sector_size": sector_size_dict},
                         "fs_type": "fat32",
                         "mountpoint": "/boot",
                         "flags": ["boot", "esp"],
@@ -218,8 +219,8 @@ def api_install():
                     root_start_mib = 1 + boot_size_mib
                     root_part = {
                         "status": "create", "type": "primary",
-                        "start": {"unit": "MiB", "value": root_start_mib, "sector_size": None},
-                        "size": {"unit": "Percent", "value": root_percentage, "sector_size": None},
+                        "start": {"unit": "MiB", "value": root_start_mib, "sector_size": sector_size_dict},
+                        "size": {"unit": "Percent", "value": root_percentage, "sector_size": sector_size_dict},
                         "fs_type": filesystem_str,
                         "mountpoint": "/",
                         "flags": [],
@@ -232,7 +233,7 @@ def api_install():
                     home_part = {
                         "status": "create", "type": "primary",
                         # Omitting start lets the partitioner place it after root
-                        "size": {"unit": "Percent", "value": 100, "sector_size": None}, # 100% of remaining space
+                        "size": {"unit": "Percent", "value": 100, "sector_size": sector_size_dict}, # 100% of remaining space
                         "fs_type": filesystem_str,
                         "mountpoint": "/home",
                         "flags": [],
