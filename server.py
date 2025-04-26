@@ -317,6 +317,7 @@ def api_install():
             'qt6-wayland', 'wl-clipboard', 'network-manager-applet', # Utilities & Qt6 support
             'noto-fonts', 'noto-fonts-emoji', 'ttf-jetbrains-mono-nerd', # Fonts
             'git', 'fontconfig', 'ttf-dejavu', # Version control & Font rendering support
+            'tzdata' # Timezone data for API and system
         ],
         "parallel downloads": data.get("parallel downloads", 0),
         # use guided script
@@ -378,47 +379,85 @@ def api_install():
     with open(creds_path, 'w') as f:
         json.dump(creds_config, f) # Save creds config
         
-    # Start installation in background thread
-    def run_install():
-        print("DEBUG: run_install thread starting")
-        # log beginning of install thread
-        print("DEBUG: run_install invoked: clearing previous progress and starting install")
-        try:
-            # clear any previous progress messages
-            progress_buffer.clear()
-            # Linux: run real archinstall in JSON mode using both config and creds files
-            cmd = ['python', '-m', 'archinstall', 
-                   '--config', config_path, 
-                   '--creds', creds_path, # Add creds file path
-                   '--script', 'guided', '--json']
-            print(f"DEBUG: running archinstall command: {cmd}")
-            proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
-            for line in proc.stdout:
-                line = line.strip()
-                print(f"DEBUG: raw line from archinstall: {line}")
-                if not line:
-                    continue
-                try:
-                    msg = json.loads(line)
-                except json.JSONDecodeError:
-                    # log any raw archinstall output for debugging
-                    print(f"ARCHINSTALL RAW: {line}")
-                    msg = {'message': line}
-                progress_buffer.append(msg)
-            proc.wait()
-        except Exception as e:
-            import traceback
-            traceback.print_exc()
-            print(f"DEBUG: exception in run_install thread: {e}")
-            # push error into the progress buffer for UI feedback
-            progress_buffer.append({'status': 'error', 'message': str(e)})
-    Thread(target=run_install, daemon=True).start()
-    return jsonify({'status': 'running'})
+    # --- Start Installation as Detached Process --- 
+    progress_file_path = '/tmp/archinstall_progress.json'
+    stderr_log_path = '/tmp/archinstall_stderr.log'
+    
+    # Clear previous logs/progress if they exist
+    if os.path.exists(progress_file_path):
+        os.remove(progress_file_path)
+    if os.path.exists(stderr_log_path):
+        os.remove(stderr_log_path)
+
+    # Command to run archinstall
+    cmd = ['python', '-m', 'archinstall', 
+           '--config', config_path, 
+           '--creds', creds_path, 
+           '--script', 'guided', 
+           '--silent', 
+           '--json']
+    print(f"DEBUG: launching detached archinstall command: {cmd}")
+
+    try:
+        # Open files for redirection
+        outfile = open(progress_file_path, 'w')
+        errfile = open(stderr_log_path, 'w')
+        infile = open('/dev/null', 'r') # Provide null input
+
+        # Launch in a new session, detached from Flask server
+        proc = subprocess.Popen(cmd, 
+                                stdin=infile, 
+                                stdout=outfile, 
+                                stderr=errfile, 
+                                start_new_session=True) # Key for detachment
+                                
+        print(f"DEBUG: Archinstall process launched with PID: {proc.pid}")
+        # We don't wait for proc.wait() here - it runs detached.
+        
+        # Close file handles in the parent process (Flask)
+        # The child process (archinstall) inherits them.
+        infile.close()
+        outfile.close()
+        errfile.close()
+        
+        return jsonify({'status': 'running', 'message': 'Installation process started.'})
+        
+    except Exception as e:
+        # Log any errors during process launch
+        print(f"ERROR: Failed to launch archinstall process: {e}")
+        import traceback
+        traceback.print_exc()
+        # Ensure files are closed if error occurs during Popen
+        if 'infile' in locals() and not infile.closed: infile.close()
+        if 'outfile' in locals() and not outfile.closed: outfile.close()
+        if 'errfile' in locals() and not errfile.closed: errfile.close()
+        return jsonify({'status': 'error', 'message': f'Failed to start installation: {e}'}), 500
 
 @app.route('/api/install/logs')
 def api_install_logs():
-    # serve the in-memory JSON progress messages
-    return jsonify(list(progress_buffer))
+    # Read JSON progress messages from the designated file
+    progress_file_path = '/tmp/archinstall_progress.json'
+    events = []
+    try:
+        if os.path.exists(progress_file_path):
+            with open(progress_file_path, 'r') as f:
+                for line in f:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        msg = json.loads(line)
+                        events.append(msg)
+                    except json.JSONDecodeError:
+                        # Append non-JSON lines as simple messages for debugging
+                        print(f"ARCHINSTALL RAW (from file): {line}")
+                        events.append({'message': line})
+    except Exception as e:
+        print(f"ERROR: Could not read progress file {progress_file_path}: {e}")
+        events.append({'status': 'error', 'message': f'Error reading progress log: {e}'})
+        
+    # Return all collected events
+    return jsonify(events)
 
 @app.route('/api/install/debug_log')
 def api_install_debug_log():
