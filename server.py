@@ -1,15 +1,24 @@
 from flask import Flask, jsonify, send_from_directory, request
-import archinstall
+# Attempt to import archinstall (in Windows stub-mode this will be skipped)
 try:
-    from archinstall.disk.device_handler import devices as DISK_DEVICES
+    import archinstall
 except ImportError:
+    archinstall = None
+# Only import DISK_DEVICES if archinstall is available
+if archinstall:
     try:
-        # older archinstall versions may export a global 'devices'
-        from archinstall.lib.disk.device_handler import devices as DISK_DEVICES
+        from archinstall.disk.device_handler import devices as DISK_DEVICES
     except ImportError:
-        # fallback: instantiate DeviceHandler
-        from archinstall.lib.disk.device_handler import DeviceHandler
-        DISK_DEVICES = DeviceHandler().devices
+        try:
+            # older archinstall versions may export a global 'devices'
+            from archinstall.lib.disk.device_handler import devices as DISK_DEVICES
+        except ImportError:
+            # fallback: instantiate DeviceHandler
+            from archinstall.lib.disk.device_handler import DeviceHandler
+            DISK_DEVICES = DeviceHandler().devices
+else:
+    # stub for Windows/development mode
+    DISK_DEVICES = []
 import psutil
 import os
 from threading import Thread
@@ -18,8 +27,14 @@ import subprocess
 import socket
 import re
 from collections import deque
+import platform
+import tempfile
+import time
 
 app = Flask(__name__, static_folder='.', static_url_path='')
+
+# Detect Windows to stub Linux-only operations
+IS_WINDOWS = platform.system() == "Windows"
 
 # In-memory buffer to store JSON progress messages
 progress_buffer = deque(maxlen=200)
@@ -30,7 +45,23 @@ def index():
 
 @app.route('/api/disks')
 def api_disks():
-    # use lsblk JSON to enumerate physical disks and compute free space
+    # Windows: use psutil to enumerate drives
+    if IS_WINDOWS:
+        result = []
+        for part in psutil.disk_partitions(all=False):
+            try:
+                usage = psutil.disk_usage(part.mountpoint)
+            except PermissionError:
+                continue
+            result.append({
+                'name': part.device,
+                'model': part.device,
+                'path': part.mountpoint,
+                'total_bytes': usage.total,
+                'free_bytes': usage.free
+            })
+        return jsonify(result)
+    # Linux: original lsblk-based implementation
     result = []
     # include MODEL so we can show the vendor/model string (e.g. VBOX HARDDISK)
     ls = subprocess.check_output(
@@ -62,15 +93,25 @@ def api_disks():
 
 @app.route('/api/network/status')
 def api_network_status():
-    stats = psutil.net_if_stats()
-    addrs = psutil.net_if_addrs()
-    # check for active Ethernet
+    # Windows: assume first usable interface
+    if IS_WINDOWS:
+        stats = psutil.net_if_stats()
+        iface = next((i for i,s in stats.items() if s.isup and not i.lower().startswith('loop')), None)
+        # check administrative state via netsh
+        enabled = False
+        try:
+            out = subprocess.check_output(['netsh', 'interface', 'show', 'interface', f'name={iface}'], universal_newlines=True)
+            enabled = 'Enabled' in out
+        except Exception:
+            pass
+        return jsonify({'connection_type': 'ethernet', 'interface': iface, 'enabled': enabled})
+    # Linux: original ethernet then wifi scan
     for iface, stat in stats.items():
         if iface == 'lo':
             continue
         if (iface.startswith('en') or iface.startswith('eth')) and stat.isup:
             # has IPv4 assigned?
-            if any(a.family == socket.AF_INET for a in addrs.get(iface, [])):
+            if any(a.family == socket.AF_INET for a in psutil.net_if_addrs().get(iface, [])):
                 return jsonify({'connection_type': 'ethernet', 'interface': iface})
     # fallback to wireless
     for iface, stat in stats.items():
@@ -150,13 +191,22 @@ def api_install():
         # version
         "version": data.get("version", getattr(archinstall, "__version__", None))
     }
-    # Write the user-provided Archinstall config to a temp file
-    config_path = '/tmp/archinstall_config.json'
+    # save config in the project root (Boxlinux folder)
+    project_dir = os.path.dirname(os.path.abspath(__file__))
+    config_path = os.path.join(project_dir, 'archinstall_config.json')
     with open(config_path, 'w') as f:
         json.dump(config, f)
     # Start installation in background thread
     def run_install():
-        # start archinstall in JSON mode, capture stdout lines
+        # Windows: simulate progress events
+        if IS_WINDOWS:
+            progress_buffer.clear()
+            for pct in range(0, 101, 10):
+                progress_buffer.append({'percent': pct, 'step': f'Step {pct/10}'})
+                time.sleep(0.2)
+            progress_buffer.append({'status': 'done', 'percent': 100, 'message': 'Completed'})
+            return
+        # Linux: run real archinstall in JSON mode
         cmd = ['python', '-m', 'archinstall', '--config', config_path, '--script', 'guided', '--json']
         proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
         for line in proc.stdout:
@@ -166,7 +216,6 @@ def api_install():
             try:
                 msg = json.loads(line)
             except json.JSONDecodeError:
-                # fallback to raw line
                 msg = {'message': line}
             progress_buffer.append(msg)
         proc.wait()
@@ -201,4 +250,8 @@ def api_locale(lang):
     return send_from_directory('locales', os.path.basename(path), mimetype='application/json')
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=8000, debug=True) 
+    # Windows may forbid binding port 8000 to 0.0.0.0 without elevated rights
+    if IS_WINDOWS:
+        app.run(host='127.0.0.1', port=5000, debug=True)
+    else:
+        app.run(host='0.0.0.0', port=8000, debug=True) 

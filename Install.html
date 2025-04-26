@@ -490,7 +490,10 @@ This license applies to the core Wave application. Additional components or libr
     </div> <!-- End installer -->
 
     <script>
-        // JAVASCRIPT REMAINS EXACTLY THE SAME AS THE PREVIOUS (fixed) VERSION
+        // global state for network interface and SSID
+        var selectedInterface = null;
+        var selectedSSID = null;
+
         document.addEventListener('DOMContentLoaded', () => {
             // --- Elements ---
             const installerBody = document.querySelector('.installer-body');
@@ -988,9 +991,9 @@ This license applies to the core Wave application. Additional components or libr
                     document.querySelector('#step-finish .accept-label').lastChild.textContent = strings.step_finish_launch;
 
                     // Footer Buttons
-                    nextButton.textContent = strings.button_next;
-                    backButton.textContent = strings.button_back;
-                    finishButton.textContent = strings.button_finish;
+                    document.getElementById('next-button').textContent = strings.button_next;
+                    document.getElementById('back-button').textContent = strings.button_back;
+                    document.getElementById('finish-button').textContent = strings.button_finish;
                 });
         }
     </script>
