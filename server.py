@@ -202,13 +202,13 @@ def api_install():
                     # Define standard UEFI layout using dictionary format for sizes
                     boot_part = {
                         "status": "create", "type": "primary",
-                        "start": {"unit": "MiB", "value": 1}, # 1MiB offset
-                        "length": {"unit": "GiB", "value": 1}, # 1GiB size
+                        "start": {"unit": "MiB", "value": 1, "sector_size": 512}, # 1MiB offset
+                        "length": {"unit": "GiB", "value": 1, "sector_size": 512}, # 1GiB size
                         "mountpoint": "/boot", "fs_type": "fat32", "flags": ["boot", "esp"]
                     }
                     root_part = {
                         "status": "create", "type": "primary",
-                        "start": {"unit": "MiB", "value": 1025}, # Start after boot (1GiB + 1MiB)
+                        "start": {"unit": "MiB", "value": 1025, "sector_size": 512}, # Start after boot (1GiB + 1MiB)
                         # Omitting "length" should imply using the rest of the disk
                         "mountpoint": "/", "fs_type": filesystem_str
                     }
