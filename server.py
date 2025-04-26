@@ -34,9 +34,9 @@ import logging
 
 # --- Archinstall Library Imports ---
 try:
-    from archinstall.lib.disk.configurator import suggest_single_disk_layout
-    from archinstall.lib.disk.device_handler import device_handler
-    from archinstall.lib.models.disk import FilesystemType
+    from archinstall.disk.configurator import suggest_single_disk_layout
+    from archinstall.disk.device_handler import device_handler
+    from archinstall.disk.types import FilesystemType
     ARCHINSTALL_LIB_AVAILABLE = True
 except ImportError as e:
     print(f"WARNING: Failed to import archinstall library components: {e}. Disk layout generation will be skipped.")
@@ -185,47 +185,53 @@ def api_install():
     lang_code = data.get("archinstall-language")
     lang_name = lang_map.get(lang_code, lang_code)
  
-    # --- Generate Disk Layout --- 
-    disk_cfg = data.get("disk_config")
+    # --- Determine Disk Configuration --- 
+    disk_cfg_request = data.get("disk_config")
     filesystem_str = data.get("filesystem", "ext4")
-    generated_disk_mod = None
+    disk_cfg = None # Final config to use
 
-    if ARCHINSTALL_LIB_AVAILABLE and isinstance(disk_cfg, dict) and disk_cfg.get('config_type') == 'default_layout':
-        mods = disk_cfg.get('device_modifications', [])
+    if isinstance(disk_cfg_request, dict) and disk_cfg_request.get('config_type') == 'default_layout':
+        mods = disk_cfg_request.get('device_modifications', [])
         if mods and isinstance(mods, list) and len(mods) > 0:
             target_device_path = mods[0].get('device')
-            if target_device_path:
-                print(f"DEBUG: Attempting to generate default layout for {target_device_path}")
-                device = device_handler.get_device(target_device_path)
-                fs_type_enum = getattr(FilesystemType, filesystem_str.capitalize(), FilesystemType.Ext4)
+            wipe_disk = mods[0].get('wipe', True)
 
-                if device:
-                    try:
-                        # Call the function that mimics the TUI's default layout logic
-                        generated_disk_mod = suggest_single_disk_layout(device, filesystem_type=fs_type_enum)
-                        # We now have the *explicit* partition plan, so don't use config_type anymore.
-                        # The structure of generated_disk_mod already contains the device path and partitions.
-                        disk_cfg = {"device_modifications": [generated_disk_mod.json(by_alias=True)]}
-                        print(f"DEBUG: Successfully generated disk layout: {disk_cfg}")
-                    except Exception as layout_err:
-                        print(f"ERROR: Failed to generate disk layout: {layout_err}")
-                        # Fallback or signal error - For now, just use the original minimal config
-                        disk_cfg = data.get("disk_config") # Revert to original minimal request
-                else:
-                     print(f"ERROR: Could not get device object for {target_device_path}")
-                     disk_cfg = data.get("disk_config") # Revert
+            if target_device_path:
+                print(f"DEBUG: Calculating default layout for {target_device_path}")
+                try:
+                    # Define standard UEFI layout (adjust sizes as needed)
+                    boot_part = {
+                        "status": "create", "type": "primary", "start": "1MiB", "length": "1GiB",
+                        "mountpoint": "/boot", "fs_type": "fat32", "flags": ["boot", "esp"]
+                    }
+                    root_part = {
+                        "status": "create", "type": "primary", "start": "1025MiB", "length": "100%", # Use 100% to take remaining space
+                        "mountpoint": "/", "fs_type": filesystem_str
+                    }
+
+                    device_mod = {
+                        "device": target_device_path,
+                        "wipe": wipe_disk,
+                        "partitions": [boot_part, root_part]
+                    }
+                    # Set the final config to use this explicit layout
+                    disk_cfg = {"device_modifications": [device_mod]}
+                    print(f"DEBUG: Calculated default layout: {disk_cfg}")
+
+                except Exception as calc_err:
+                    print(f"ERROR: Failed calculating default layout: {calc_err}")
+                    # Fallback: Use the original request if calculation failed
+                    disk_cfg = disk_cfg_request 
             else:
                  print("WARN: No device path found in device_modifications for default layout.")
-                 disk_cfg = data.get("disk_config") # Revert
+                 disk_cfg = disk_cfg_request # Use original request
         else:
              print("WARN: No device_modifications found for default layout type.")
-             disk_cfg = data.get("disk_config") # Revert
-    elif not ARCHINSTALL_LIB_AVAILABLE:
-        print("WARN: Archinstall libs not available, cannot generate layout. Using submitted disk_config.")
-        disk_cfg = data.get("disk_config") # Use whatever was sent
+             disk_cfg = disk_cfg_request # Use original request
     else:
-        # If it wasn't default_layout or wasn't a dict, just use what was sent.
-        disk_cfg = data.get("disk_config")
+        # If not requesting default layout, or request was invalid, use it as is
+        print("DEBUG: Using disk_config as provided (not generating default layout).")
+        disk_cfg = disk_cfg_request
 
     # --- Prepare Network and Profile --- 
     network_cfg = {"type": "nm"}
