@@ -254,8 +254,7 @@
             background-color: var(--accent-active);
             color: var(--accent-text);
         }
-
-vvvvvvvvvvvvvvvvvvvvvvvvvvv    </style>
+   </style>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/jsvectormap/dist/css/jsvectormap.min.css" />
     <script src="https://cdn.jsdelivr.net/npm/jsvectormap"></script>
     <script src="https://cdn.jsdelivr.net/npm/jsvectormap/dist/maps/world-merc.js"></script>
@@ -785,6 +784,15 @@ This license applies to the core Wave application. Additional components or libr
                     "user": {
                         username: usernameInput.value,
                         password: passwordInput.value
+                    },
+                    "disk_config": {
+                        config_type: "default_layout",
+                        device_modifications: [
+                            {
+                                device: selectedDriveInfo.path,
+                                wipe: true
+                            }
+                        ]
                     }
                 };
                 // kick off the installer

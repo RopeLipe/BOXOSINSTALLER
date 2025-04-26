@@ -30,8 +30,12 @@ from collections import deque
 import platform
 import tempfile
 import time
+import logging
 
+logging.basicConfig(level=logging.DEBUG)
+print("DEBUG: starting server.py in debug mode")
 app = Flask(__name__, static_folder='.', static_url_path='')
+print(f"DEBUG: Flask app created, IS_WINDOWS={platform.system() == 'Windows'}")
 
 # Detect Windows to stub Linux-only operations
 IS_WINDOWS = platform.system() == "Windows"
@@ -147,7 +151,14 @@ def api_net_config():
 @app.route('/api/install', methods=['POST'])
 def api_install():
     """Receive installation config, write JSON files, and start archinstall guided script in background"""
-    data = request.json or {}
+    raw_body = request.get_data(as_text=True)
+    print(f"DEBUG: raw request body: {raw_body}")
+    try:
+        data = request.get_json(force=True)
+    except Exception as e:
+        print(f"ERROR: failed to parse JSON: {e}")
+        data = {}
+    print(f"DEBUG: parsed JSON data: {data}")
     # map language codes to full language names for Archinstall
     lang_map = {
         "en": "English",
@@ -160,50 +171,73 @@ def api_install():
     }
     lang_code = data.get("archinstall-language")
     lang_name = lang_map.get(lang_code, lang_code)
-    # Assemble the Archinstall config from payload
+    # Prepare defaults for disk, network, and profile
+    disk_cfg = data.get("disk_config")
+    if not isinstance(disk_cfg, dict) or not disk_cfg:
+        disk_cfg = {"config_type": "default_layout", "wipe": True}
+    network_cfg = {"type": "nm"}
+    profile_cfg = {
+        "gfx_driver": None,
+        "greeter": None,
+        "profile": {
+            "main": data.get("profile", "Minimal"),
+            "details": [],
+            "custom_settings": {}
+        }
+    }
+    # include version and config metadata
+    version_val = data.get("version", getattr(archinstall, "__version__", None))
     config = {
+        "config_version": version_val,
+        "version": version_val,
+        "additional-repositories": data.get("additional-repositories", []),
         # translation & UI (use full language name)
         "archinstall-language": lang_name,
-        # audio always PipeWire
-        "audio_config": "pipewire",
-        # bootloader choice
+        # audio (pipewire)
+        "audio_config": {"audio": data.get("audio_config", "pipewire")},
+        # bootloader
         "bootloader": data.get("bootloader", "systemd-boot"),
         # debugging
         "debug": data.get("debug", False),
-        # disk layout or auto partition
-        "disk_config": data.get("disk_config", {}),
-        # no disk encryption by default
+        # disk layout: default_layout autopartition
+        "disk_config": disk_cfg,
         # hostname
         "hostname": data.get("hostname", "archlinux"),
         # kernels
         "kernels": data.get("kernels", ["linux"]),
-        # locale based on chosen language (use full language name)
-        "locale_config": {"sys_lang": lang_name, "sys_enc": data.get("sys_enc", "UTF-8"), "kb_layout": data.get("kb_layout", "us")},
-        # mirror configuration from country step
+        # locale settings
+        "locale_config": {"sys_lang": lang_code, "sys_enc": data.get("sys_enc", "UTF-8"), "kb_layout": data.get("kb_layout", "us")},
+        # mirrors
         "mirror_config": data.get("mirror_config", {}),
-        # network
-        "network_config": data.get("network_config", {}),
-        # package lookup
+        # network: NM
+        "network_config": network_cfg,
+        # lookups
         "no_pkg_lookups": data.get("no_pkg_lookups", False),
-        # NTP
+        # time sync
         "ntp": data.get("ntp", True),
-        # offline install?
+        # offline
         "offline": data.get("offline", False),
         # extra packages
         "packages": data.get("packages", []),
         "parallel downloads": data.get("parallel downloads", 0),
-        # minimal profile & unattended
-        "profile_config": "minimal",
-        "script": "unattended",
-        # silent
+        # use guided script
+        "script": "guided",
+        # silent mode
         "silent": data.get("silent", False),
+        # skip flags
+        "skip_ntp": data.get("skip_ntp", False),
+        "skip_version_check": data.get("skip_version_check", False),
         # swap
         "swap": data.get("swap", True),
-        # timezone from step
+        # timezone
         "timezone": data.get("timezone", "UTC"),
-        # version
-        "version": data.get("version", getattr(archinstall, "__version__", None))
+        # UI toolkit
+        "uikit": data.get("uikit", False),
+        # profile config
+        "profile_config": profile_cfg
     }
+    # debug-print the final config for troubleshooting
+    print(f"DEBUG: final archinstall config: {config}")
     # save config in the project root (Boxlinux folder)
     project_dir = os.path.dirname(os.path.abspath(__file__))
     config_path = os.path.join(project_dir, 'archinstall_config.json')
@@ -211,10 +245,14 @@ def api_install():
         json.dump(config, f)
     # Start installation in background thread
     def run_install():
+        print("DEBUG: run_install thread starting")
+        # log beginning of install thread
+        print("DEBUG: run_install invoked: clearing previous progress and starting install")
         try:
+            # clear any previous progress messages
+            progress_buffer.clear()
             # Windows: simulate progress events
             if IS_WINDOWS:
-                progress_buffer.clear()
                 for pct in range(0, 101, 10):
                     progress_buffer.append({'percent': pct, 'step': f'Step {pct/10}'})
                     time.sleep(0.2)
@@ -222,20 +260,25 @@ def api_install():
                 return
             # Linux: run real archinstall in JSON mode
             cmd = ['python', '-m', 'archinstall', '--config', config_path, '--script', 'guided', '--json']
+            print(f"DEBUG: running archinstall command: {cmd}")
             proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
             for line in proc.stdout:
                 line = line.strip()
+                print(f"DEBUG: raw line from archinstall: {line}")
                 if not line:
                     continue
                 try:
                     msg = json.loads(line)
                 except json.JSONDecodeError:
+                    # log any raw archinstall output for debugging
+                    print(f"ARCHINSTALL RAW: {line}")
                     msg = {'message': line}
                 progress_buffer.append(msg)
             proc.wait()
         except Exception as e:
             import traceback
             traceback.print_exc()
+            print(f"DEBUG: exception in run_install thread: {e}")
             # push error into the progress buffer for UI feedback
             progress_buffer.append({'status': 'error', 'message': str(e)})
     Thread(target=run_install, daemon=True).start()
