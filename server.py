@@ -27,10 +27,11 @@ import subprocess
 import socket
 import re
 from collections import deque
-import platform
-import tempfile
 import time
 import logging
+import crypt # Import the crypt module
+import secrets # Import secrets for random password generation
+import string # Import string for character sets
 
 # --- Archinstall Library Imports ---
 try:
@@ -48,10 +49,6 @@ except ImportError as e:
 logging.basicConfig(level=logging.DEBUG)
 print("DEBUG: starting server.py in debug mode")
 app = Flask(__name__, static_folder='.', static_url_path='')
-print(f"DEBUG: Flask app created, IS_WINDOWS={platform.system() == 'Windows'}")
-
-# Detect Windows to stub Linux-only operations
-IS_WINDOWS = platform.system() == "Windows"
 
 # In-memory buffer to store JSON progress messages
 progress_buffer = deque(maxlen=200)
@@ -62,22 +59,6 @@ def index():
 
 @app.route('/api/disks')
 def api_disks():
-    # Windows: use psutil to enumerate drives
-    if IS_WINDOWS:
-        result = []
-        for part in psutil.disk_partitions(all=False):
-            try:
-                usage = psutil.disk_usage(part.mountpoint)
-            except PermissionError:
-                continue
-            result.append({
-                'name': part.device,
-                'model': part.device,
-                'path': part.mountpoint,
-                'total_bytes': usage.total,
-                'free_bytes': usage.free
-            })
-        return jsonify(result)
     # Linux: original lsblk-based implementation
     result = []
     # include MODEL so we can show the vendor/model string (e.g. VBOX HARDDISK)
@@ -113,17 +94,6 @@ def api_network_status():
     # always gather interface stats and addresses before branching
     stats = psutil.net_if_stats()
     addrs = psutil.net_if_addrs()
-    # Windows: assume first usable interface
-    if IS_WINDOWS:
-        iface = next((i for i,s in stats.items() if s.isup and not i.lower().startswith('loop')), None)
-        # check administrative state via netsh
-        enabled = False
-        try:
-            out = subprocess.check_output(['netsh', 'interface', 'show', 'interface', f'name={iface}'], universal_newlines=True)
-            enabled = 'Enabled' in out
-        except Exception:
-            pass
-        return jsonify({'connection_type': 'ethernet', 'interface': iface, 'enabled': enabled})
     # Linux: check for active Ethernet
     for iface, stat in stats.items():
         if iface == 'lo':
@@ -179,7 +149,20 @@ def api_install():
         "es": "Español",
         "de": "Deutsch",
         "it": "Italiano",
-        "pt": "Português"
+        "pt": "Português",
+        "ja": "Japanese",  # Added Japanese
+        "ko": "Korean",    # Added Korean
+        "zh-CN": "Chinese (Simplified)", # Added Chinese (Simplified)
+        "ru": "Russian",   # Added Russian
+        "ar": "Arabic",    # Added Arabic
+        "tr": "Turkish",   # Added Turkish
+        "nl": "Dutch",     # Added Dutch
+        "pl": "Polish",    # Added Polish
+        "vi": "Vietnamese",# Added Vietnamese
+        "hi": "Hindi",     # Added Hindi
+        "bn": "Bengali",   # Added Bengali
+        "th": "Thai",      # Added Thai
+        "ms": "Malay"      # Added Malay
         # add more mappings as needed
     }
     lang_code = data.get("archinstall-language")
@@ -219,7 +202,7 @@ def api_install():
                         "size": {"unit": "GiB", "value": boot_size_gib, "sector_size": {"unit": "B", "value": 512}},
                         "fs_type": "fat32",
                         "mountpoint": "/boot",
-                        "flags": ["Boot"],
+                        "flags": ["esp", "boot"],
                         "mount_options": [],
                         "btrfs": []
                     }
@@ -334,7 +317,7 @@ def api_install():
             'polkit-kde-agent', 'xdg-desktop-portal-hyprland', 'xdg-desktop-portal-gtk', # Portals & Auth
             'qt6-wayland', 'wl-clipboard', 'network-manager-applet', # Utilities & Qt6 support
             'noto-fonts', 'noto-fonts-emoji', 'ttf-jetbrains-mono-nerd', # Fonts
-            'git' # Version control
+            'git', 'fontconfig', 'ttf-dejavu', # Version control & Font rendering support
         ],
         "parallel downloads": data.get("parallel downloads", 0),
         # use guided script
@@ -354,23 +337,51 @@ def api_install():
         "uikit": data.get("uikit", False),
         # profile config
         "profile_config": profile_cfg,
-        # user account to create (must be a list of user objects)
+        # User config (non-sensitive parts)
         "user_config": {
             "users": [
                 {
-                    "password": data.get("user", {}).get("password"),
-                    "username": data.get("user", {}).get("username")
+                    "username": data.get("user", {}).get("username"),
+                    "sudo": True
                 }
             ]
         }
+        # Passwords are moved to creds file
     }
-    # debug-print the final config for troubleshooting
-    print(f"DEBUG: final archinstall config: {config}")
-    # save config in the project root (Boxlinux folder)
+
+    # --- Prepare Credentials --- 
+    # Generate a strong random password for root
+    alphabet = string.ascii_letters + string.digits + string.punctuation
+    root_plain_password = ''.join(secrets.choice(alphabet) for i in range(16))
+    print(f"DEBUG: Generated random root password (plain): {root_plain_password}")
+    # Hash the random root password
+    root_hashed_password = crypt.crypt(root_plain_password, crypt.mksalt(crypt.METHOD_SHA512))
+    print(f"DEBUG: Hashed root password.")
+    
+    creds_config = {
+        "!root-password": root_hashed_password,
+        "!users": [
+            {
+                "!password": data.get("user", {}).get("password"), # Plaintext user password
+                "username": data.get("user", {}).get("username") # Username for matching
+            }
+        ]
+    }
+
+    # debug-print the final configs for troubleshooting
+    print(f"DEBUG: final archinstall main config: {config}")
+    print(f"DEBUG: final archinstall creds config: {creds_config}")
+
+    # save configs in the project root (Boxlinux folder)
     project_dir = os.path.dirname(os.path.abspath(__file__))
     config_path = os.path.join(project_dir, 'archinstall_config.json')
+    creds_path = os.path.join(project_dir, 'archinstall_creds.json') # Path for creds file
+    
     with open(config_path, 'w') as f:
-        json.dump(config, f)
+        json.dump(config, f) # Save main config
+    with open(creds_path, 'w') as f:
+        json.dump(creds_config, f) # Save creds config
+        
     # Start installation in background thread
     def run_install():
         print("DEBUG: run_install thread starting")
@@ -379,15 +390,11 @@ def api_install():
         try:
             # clear any previous progress messages
             progress_buffer.clear()
-            # Windows: simulate progress events
-            if IS_WINDOWS:
-                for pct in range(0, 101, 10):
-                    progress_buffer.append({'percent': pct, 'step': f'Step {pct/10}'})
-                    time.sleep(0.2)
-                progress_buffer.append({'status': 'done', 'percent': 100, 'message': 'Completed'})
-                return
-            # Linux: run real archinstall in JSON mode
-            cmd = ['python', '-m', 'archinstall', '--config', config_path, '--script', 'guided', '--json']
+            # Linux: run real archinstall in JSON mode using both config and creds files
+            cmd = ['python', '-m', 'archinstall', 
+                   '--config', config_path, 
+                   '--creds', creds_path, # Add creds file path
+                   '--script', 'guided', '--json']
             print(f"DEBUG: running archinstall command: {cmd}")
             proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
             for line in proc.stdout:
@@ -422,33 +429,66 @@ def api_install_debug_log():
     """Reads the last 100 lines from the main archinstall log file for debugging."""
     log_path = '/var/log/archinstall/install.log'
     lines = []
-    if not IS_WINDOWS:
-        try:
-            with open(log_path, 'r') as f:
-                # Efficiently get the last N lines
-                lines = deque(f, 100) 
-        except FileNotFoundError:
-            lines = [f"Error: Log file not found at {log_path}"]
-        except Exception as e:
-            lines = [f"Error reading log file {log_path}: {e}"]
-    else:
-        lines = ["Debug log endpoint is disabled on Windows."]
+    try:
+        with open(log_path, 'r') as f:
+            # Efficiently get the last N lines
+            lines = deque(f, 100) 
+    except FileNotFoundError:
+        lines = [f"Error: Log file not found at {log_path}"]
+    except Exception as e:
+        lines = [f"Error reading log file {log_path}: {e}"]
 
     # Return the lines as a single string with newlines
     return jsonify({'log_content': "\n".join(lines)})
 
-@app.route('/api/timezones/<country>')
-def api_timezones(country):
-    # return a list of timezones based on country code
-    tz_map = {
-        'US': ['America/New_York', 'America/Los_Angeles', 'America/Chicago', 'America/Denver'],
-        'CA': ['America/Toronto', 'America/Vancouver'],
-        'DE': ['Europe/Berlin'],
-        'FR': ['Europe/Paris'],
-        'JP': ['Asia/Tokyo'],
-        'AU': ['Australia/Sydney', 'Australia/Melbourne']
-    }
-    return jsonify(tz_map.get(country, ['UTC']))
+@app.route('/api/timezones')
+def api_timezone_regions():
+    """Lists available timezone regions (continents/major areas)."""
+    zoneinfo_path = '/usr/share/zoneinfo'
+    regions = []
+    try:
+        # List directories, excluding 'posix', 'right', potentially others
+        excluded_dirs = {'posix', 'right', 'Etc', 'SystemV'}
+        for item in os.listdir(zoneinfo_path):
+            # Check if it's a directory and not a special file/link like 'iso3166.tab' or 'zone.tab'
+            # Also check if it's uppercase (common convention for regions)
+            if os.path.isdir(os.path.join(zoneinfo_path, item)) and item not in excluded_dirs and item[0].isupper():
+                regions.append(item)
+        regions.sort()
+    except FileNotFoundError:
+        return jsonify({"error": "Zoneinfo directory not found.", "regions": []}), 404
+    except Exception as e:
+        return jsonify({"error": str(e), "regions": []}), 500
+    return jsonify({"regions": regions})
+
+@app.route('/api/timezones/<region>')
+def api_timezones_in_region(region):
+    """Returns a list of timezones within a specific region."""
+    zoneinfo_path = f'/usr/share/zoneinfo/{region}'
+    timezones = []
+    try:
+        if not os.path.isdir(zoneinfo_path):
+             return jsonify({"error": f"Region '{region}' not found.", "timezones": []}), 404
+                 
+        for root, dirs, files in os.walk(zoneinfo_path):
+            for file in files:
+                # Construct the full timezone path relative to the region
+                full_path = os.path.join(root, file)
+                # Get the timezone name relative to /usr/share/zoneinfo
+                tz_name = os.path.relpath(full_path, '/usr/share/zoneinfo')
+                # Avoid including non-timezone files if any exist
+                if "/" in tz_name and not tz_name.startswith(('.', 'posix/', 'right/')):
+                     # Check if the first char is uppercase (common convention for city names)
+                     # This helps filter out potential helper files sometimes found in zoneinfo
+                     if os.path.basename(tz_name)[0].isupper():
+                        timezones.append(tz_name.replace('\\', '/')) # Ensure forward slashes
+
+        timezones.sort()
+    except FileNotFoundError:
+        return jsonify({"error": f"Region path '{zoneinfo_path}' not found.", "timezones": []}), 404
+    except Exception as e:
+        return jsonify({"error": str(e), "timezones": []}), 500
+    return jsonify({"timezones": timezones})
 
 @app.route('/api/locale/<lang>')
 def api_locale(lang):
@@ -460,8 +500,4 @@ def api_locale(lang):
     return send_from_directory('locales', os.path.basename(path), mimetype='application/json')
 
 if __name__ == '__main__':
-    # Windows may forbid binding port 8000 to 0.0.0.0 without elevated rights
-    if IS_WINDOWS:
-        app.run(host='127.0.0.1', port=5000, debug=True)
-    else:
-        app.run(host='0.0.0.0', port=8000, debug=True) 
+    app.run(host='0.0.0.0', port=8000, debug=True) 

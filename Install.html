@@ -291,6 +291,19 @@
                      <li class="language-item" data-lang="de">Deutsch</li>
                      <li class="language-item" data-lang="it">Italiano</li>
                      <li class="language-item" data-lang="pt">Português</li>
+                     <li class="language-item" data-lang="ja">Japanese</li>
+                     <li class="language-item" data-lang="ko">Korean</li>
+                     <li class="language-item" data-lang="zh-CN">Chinese (Simplified)</li>
+                     <li class="language-item" data-lang="ru">Russian</li>
+                     <li class="language-item" data-lang="ar">Arabic</li>
+                     <li class="language-item" data-lang="tr">Turkish</li>
+                     <li class="language-item" data-lang="nl">Dutch</li>
+                     <li class="language-item" data-lang="pl">Polish</li>
+                     <li class="language-item" data-lang="vi">Vietnamese</li>
+                     <li class="language-item" data-lang="hi">Hindi</li>
+                     <li class="language-item" data-lang="bn">Bengali</li>
+                     <li class="language-item" data-lang="th">Thai</li>
+                     <li class="language-item" data-lang="ms">Malay</li>
                  </ul>
                  <div class="language-graphic">
                     <svg><use xlink:href="#icon-globe"/></svg>
@@ -301,8 +314,8 @@
             <div class="step" id="step-welcome">
                  <div class="step-split-layout">
                     <div class="content-area welcome-content">
-                         <h2>Install Wave App</h2>
-                         <p class="lead">Ready to get started with Wave?</p>
+                         <h2>Install BOX</h2>
+                         <p class="lead">Ready to get started with Box?</p>
                          <p>Here's what you might need:</p>
                          <ul>
                              <li>A stable internet connection</li>
@@ -336,8 +349,8 @@
                         <h2><svg><use xlink:href="#icon-document"/></svg>Wave Terms of Service</h2>
                         <p>Please read the following terms carefully.</p>
                         <div class="license-content" id="license-content">
-Wave is a simple, fast and beautiful open-source something.
-Copyright © 2024 Your Name/Company
+BOX is a simple, fast and beautiful open-source something.
+Copyright © 2024 Tectonic Software
 
 This program is free software: you can redistribute it and/or modify it under the terms of the MIT License.
 
@@ -347,7 +360,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 
 You should have received a copy of the full License along with this program. If not, see <https://opensource.org/licenses/MIT>.
 
-This license applies to the core Wave application. Additional components or libraries included may be subject to their own licenses. Ensure you review all relevant license files. By proceeding, you agree to all applicable terms.
+This license applies to the core Box application. Additional components or libraries included may be subject to their own licenses. Ensure you review all relevant license files. By proceeding, you agree to all applicable terms.
                         </div>
                         <label class="accept-label">
                             <input type="checkbox" id="accept-license">
@@ -627,7 +640,7 @@ This license applies to the core Wave application. Additional components or libr
                                 </div>`;
                             // allow proceed
                             selectedInterface = status.interface;
-                            updateButtonStates();
+                 updateButtonStates();
                         } else if (status.connection_type === 'wifi') {
                             networkStatusContainer.innerHTML = `<p>Wireless interface detected: <strong>${status.interface}</strong>. Please select a network:</p>`;
                             // populate dropdown
@@ -930,6 +943,127 @@ This license applies to the core Wave application. Additional components or libr
                         });
                 }
             });
+
+            // --- LOCALE / TIMEZONE ---
+            const regionSelector = document.getElementById('regionSelector');
+            const timezoneSelector = document.getElementById('timezoneSelector');
+            const langSelector = document.getElementById('langSelector'); // Assuming this exists for language
+            const kbLayoutSelector = document.getElementById('kbLayoutSelector'); // Assuming this exists for keyboard
+
+            async function loadRegions() {
+                console.log("Fetching timezone regions...");
+                try {
+                    const response = await fetch('/api/timezones');
+                    if (!response.ok) {
+                        throw new Error(`HTTP error! status: ${response.status}`);
+                    }
+                    const data = await response.json();
+                    console.log("Regions received:", data.regions);
+                    regionSelector.innerHTML = '<option value="">Select Region...</option>'; // Clear existing options
+                    data.regions.forEach(region => {
+                        const option = document.createElement('option');
+                        option.value = region;
+                        option.textContent = region;
+                        regionSelector.appendChild(option);
+                    });
+                    timezoneSelector.innerHTML = '<option value="">Select Region First...</option>'; // Reset timezones
+                    timezoneSelector.disabled = true;
+                } catch (error) {
+                    console.error('Error fetching timezone regions:', error);
+                    regionSelector.innerHTML = '<option value="">Error loading regions</option>';
+                    timezoneSelector.innerHTML = '<option value="">Error</option>';
+                    timezoneSelector.disabled = true;
+                }
+            }
+
+            async function loadTimezones(region) {
+                if (!region) {
+                    timezoneSelector.innerHTML = '<option value="">Select Region First...</option>';
+                    timezoneSelector.disabled = true;
+                    return;
+                }
+                console.log(`Fetching timezones for region: ${region}...`);
+                timezoneSelector.innerHTML = '<option value="">Loading...</option>';
+                timezoneSelector.disabled = true;
+                try {
+                    const response = await fetch(`/api/timezones/${region}`);
+                     if (!response.ok) {
+                        throw new Error(`HTTP error! status: ${response.status}`);
+                    }
+                    const data = await response.json();
+                    console.log("Timezones received:", data.timezones);
+                    timezoneSelector.innerHTML = '<option value="">Select Timezone...</option>'; // Clear existing options
+                    data.timezones.forEach(tz => {
+                        const option = document.createElement('option');
+                        option.value = tz;
+                        option.textContent = tz;
+                        timezoneSelector.appendChild(option);
+                    });
+                    timezoneSelector.disabled = false;
+                } catch (error) {
+                    console.error('Error fetching timezones:', error);
+                    timezoneSelector.innerHTML = '<option value="">Error loading timezones</option>';
+                    timezoneSelector.disabled = true;
+                }
+            }
+
+            regionSelector.addEventListener('change', (event) => {
+                loadTimezones(event.target.value);
+            });
+
+            // --- Step Initialization ---
+            function initLocaleStep() {
+                console.log("Initializing Locale Step");
+                loadRegions(); // Load regions when the step becomes active
+            }
+
+            // Modify your existing step handling logic to call initLocaleStep
+            // when the locale step is shown. Example:
+            function showStep(stepId) {
+                const steps = document.querySelectorAll('.step-content');
+                steps.forEach(step => {
+                    step.classList.remove('active');
+                });
+                document.getElementById(stepId).classList.add('active');
+                currentStepId = stepId;
+                updateProgress(); // Update progress bar based on the new step
+
+                // Call initialization function for the specific step
+                if (stepId === 'step-locale') {
+                    initLocaleStep();
+                } else if (stepId === 'step-disks') {
+                    loadDisks();
+                } else if (stepId === 'step-network'){
+                    checkNetworkStatus();
+                } else if (stepId === 'step-installing') {
+                    // Removed startInstallation() call from here, now called by Next button
+                }
+            }
+
+            // Ensure loadRegions is called initially if the locale step is the first step
+            if (document.getElementById('step-locale').classList.contains('active')) {
+                loadRegions();
+            }
+
+            // In your collectConfigurationData function (or similar), read the selected values:
+            function collectConfigurationData() {
+                const config = {
+                    // ... other config values ...
+                    'archinstall-language': langSelector.value,
+                    'kb_layout': kbLayoutSelector.value, // Get keyboard layout
+                    'timezone': timezoneSelector.value, // Get selected timezone
+                    'disk_config': selectedDiskConfig, // From disk selection step
+                    'network_config': selectedNetworkConfig, // From network step
+                    'user': {
+                        'username': document.getElementById('usernameInput').value,
+                        'password': document.getElementById('passwordInput').value
+                    },
+                    'filesystem': selectedFilesystem || 'ext4' // Use selected or default
+                    // ... potentially add bootloader, profile etc. if selected by user ...
+                };
+                console.log("Collected Configuration:", config);
+                return config;
+            }
         });
 
         // Internationalization: fetch and apply locale strings
