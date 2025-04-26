@@ -31,6 +31,9 @@ import time
 import logging
 import secrets # Import secrets for random password generation
 import string # Import string for character sets
+import pty # Import pty for pseudo-terminal
+import select # Needed for checking pty readability
+import threading # For the reader thread
 
 # --- Archinstall Library Imports ---
 try:
@@ -49,8 +52,15 @@ logging.basicConfig(level=logging.DEBUG)
 print("DEBUG: starting server.py in debug mode")
 app = Flask(__name__, static_folder='.', static_url_path='')
 
-# In-memory buffer to store JSON progress messages
-progress_buffer = deque(maxlen=200)
+# --- Global state for installation process ---
+# Store PID and thread to potentially manage later
+install_process_info = {'pid': None, 'thread': None}
+progress_file_path = '/tmp/archinstall_progress.json'
+stderr_log_path = '/tmp/archinstall_stderr.log'
+# --------------------------------------------
+
+# In-memory buffer to store JSON progress messages - NOT USED with pty approach
+# progress_buffer = deque(maxlen=200) # Keep commented or remove
 
 @app.route('/')
 def index():
@@ -130,9 +140,81 @@ def api_net_config():
         os.system(f"ip route add default via {gw}")
     return jsonify({'status':'ok'})
 
+# --- PTY Reader Thread Function ---
+def read_pty_output(master_fd, output_path, stderr_path):
+    """Reads from the master pty FD and writes to output files."""
+    print(f"DEBUG: Starting PTY reader thread for fd {master_fd}")
+    try:
+        # Open output files within the thread
+        # Use line buffering (buffering=1) for text mode
+        progress_file = open(output_path, 'w', buffering=1, encoding='utf-8')
+        # stderr_file = open(stderr_path, 'w', buffering=1, encoding='utf-8') # Not directly captured via pty master
+
+        while True:
+            # Wait until the master FD is readable, with a timeout (e.g., 1 second)
+            # This prevents spinning busy-wait and allows graceful exit check
+            r, _, _ = select.select([master_fd], [], [], 1.0)
+            if master_fd in r:
+                try:
+                    # Read available data (up to 1024 bytes)
+                    data = os.read(master_fd, 1024)
+                except OSError:
+                    # EIO typically means the slave PTY has been closed
+                    print("DEBUG: PTY master OSError (likely closed), exiting reader thread.")
+                    break
+
+                if not data:
+                    # EOF - process terminated
+                    print("DEBUG: PTY master EOF, exiting reader thread.")
+                    break
+
+                # Decode assuming UTF-8, replace errors
+                text_output = data.decode('utf-8', errors='replace')
+                print(f"PTY RAW: {text_output.strip()}") # Log raw output for debugging
+                progress_file.write(text_output)
+                # Note: stderr is merged with stdout via PTY, so we don't write to stderr_file here.
+                # If separate stderr is needed, Popen needs separate pipes *before* pty.
+
+            # Add a check here if we need to forcefully stop the thread externally
+            # if should_stop_reading(): break
+
+    except Exception as e:
+        print(f"ERROR: Exception in PTY reader thread: {e}")
+    finally:
+        print(f"DEBUG: Closing files and PTY master fd {master_fd} in reader thread.")
+        if 'progress_file' in locals() and not progress_file.closed:
+            progress_file.close()
+        # if 'stderr_file' in locals() and not stderr_file.closed:
+        #     stderr_file.close() # Close if we were using it
+        if master_fd:
+            os.close(master_fd)
+
+# ---------------------------------
+
 @app.route('/api/install', methods=['POST'])
 def api_install():
-    """Receive installation config, write JSON files, and start archinstall guided script in background"""
+    """Receive installation config, write JSON files, and start archinstall guided script in a PTY."""
+    global install_process_info # Allow modification of global state
+
+    # --- Stop existing installation if running ---
+    if install_process_info['pid'] is not None:
+        try:
+            # Check if the process actually exists
+            os.kill(install_process_info['pid'], 0)
+            print(f"WARN: Killing previous installation process (PID: {install_process_info['pid']})")
+            os.kill(install_process_info['pid'], 9) # SIGKILL
+            if install_process_info['thread'] and install_process_info['thread'].is_alive():
+                 # We might need a way to signal the thread to stop cleanly if possible
+                 print("WARN: Previous reader thread might still be running.")
+        except OSError:
+            print(f"DEBUG: Previous install process (PID: {install_process_info['pid']}) already finished.")
+        except Exception as kill_err:
+            print(f"ERROR: Failed to kill previous process {install_process_info['pid']}: {kill_err}")
+        finally:
+            install_process_info['pid'] = None
+            install_process_info['thread'] = None
+    # --------------------------------------------
+
     raw_body = request.json
     print(f"DEBUG: raw request body: {raw_body}")
     try:
@@ -166,8 +248,8 @@ def api_install():
     }
     lang_code = data.get("archinstall-language")
     lang_name = lang_map.get(lang_code, lang_code)
- 
-    # --- Determine Disk Configuration --- 
+
+    # --- Determine Disk Configuration ---
     disk_cfg_request = data.get("disk_config")
     filesystem_str = data.get("filesystem", "ext4")
     disk_cfg = None # Final config to use
@@ -182,8 +264,8 @@ def api_install():
                 print(f"DEBUG: Calculating explicit layout for {target_device_path}")
                 try:
                     # Get total disk size in bytes using blockdev
-                    cmd = ["blockdev", "--getsize64", target_device_path]
-                    total_disk_bytes_str = subprocess.check_output(cmd, universal_newlines=True).strip()
+                    cmd_size = ["blockdev", "--getsize64", target_device_path]
+                    total_disk_bytes_str = subprocess.check_output(cmd_size, universal_newlines=True).strip()
                     total_disk_bytes = int(total_disk_bytes_str)
                     print(f"DEBUG: Total disk size for {target_device_path}: {total_disk_bytes} bytes")
 
@@ -192,6 +274,11 @@ def api_install():
                     boot_size_bytes = boot_size_gib * 1024 * 1024 * 1024
                     boot_start_mib = 1
                     boot_start_bytes = boot_start_mib * 1024 * 1024
+
+                    # Check if boot partition fits
+                    if boot_start_bytes + boot_size_bytes > total_disk_bytes:
+                         raise ValueError(f"Boot partition ({boot_size_gib} GiB) is too large for disk ({total_disk_bytes / (1024**3):.2f} GiB).")
+
 
                     boot_part = {
                         "status": "create", "type": "primary",
@@ -212,8 +299,8 @@ def api_install():
                     root_size_bytes_calc = total_disk_bytes - root_start_bytes_calc
 
                     # Add a small buffer/rounding check - don't request more than available
-                    if root_size_bytes_calc < 0:
-                        raise ValueError("Calculated root partition size is negative. Check disk size and boot partition size.")
+                    if root_size_bytes_calc <= 0: # Check for non-positive size
+                        raise ValueError(f"Calculated root partition size is non-positive ({root_size_bytes_calc} bytes). Check disk size ({total_disk_bytes / (1024**3):.2f} GiB) and boot partition size ({boot_size_gib} GiB).")
                     # Optional: Align to MiB boundary if needed, but bytes should be fine
                     # root_start_mib_calc = (root_start_bytes_calc + 1024*1024 - 1) // (1024*1024)
                     # root_size_bytes_calc = total_disk_bytes - (root_start_mib_calc * 1024 * 1024)
@@ -240,7 +327,7 @@ def api_install():
                         "config_type": "default_layout", # Keep this type
                         "device_modifications": [device_mod]
                     }
-                    print(f"DEBUG: Using calculated explicit layout: {json.dumps(disk_cfg, indent=4)}")
+                    print(f"DEBUG: Using calculated explicit layout: {json.dumps(disk_cfg, indent=2)}") # Indent 2 for brevity
 
                 except subprocess.CalledProcessError as proc_err:
                     print(f"ERROR: Failed to get disk size for {target_device_path}: {proc_err}")
@@ -262,7 +349,8 @@ def api_install():
         print("DEBUG: Using disk_config as provided (not generating default layout).")
         disk_cfg = disk_cfg_request
 
-    # --- Prepare Network and Profile --- 
+
+    # --- Prepare Network and Profile ---
     network_cfg = {"type": "nm"}
     profile_cfg = {
         "gfx_driver": None,
@@ -322,8 +410,8 @@ def api_install():
         "parallel downloads": data.get("parallel downloads", 0),
         # use guided script
         "script": "guided",
-        # silent mode
-        "silent": data.get("silent", False),
+        # silent mode - Keep commented, PTY should handle interactivity needs
+        # "silent": data.get("silent", False),
         # Add services to enable
         "services": ["sddm"], # Enable SDDM graphical login manager
         # skip flags
@@ -349,115 +437,177 @@ def api_install():
         # Passwords are moved to creds file
     }
 
-    # --- Prepare Credentials --- 
-    # Generate a strong random password for root
-    alphabet = string.ascii_letters + string.digits + string.punctuation
-    root_plain_password = ''.join(secrets.choice(alphabet) for i in range(16))
-    print(f"DEBUG: Generated random root password (plain): {root_plain_password}")
+    # --- Prepare Credentials ---
+    # Generate a strong random password for root if none provided
+    user_provided_root_pw = data.get("root_password") # Check if user provided one
+    if user_provided_root_pw:
+         root_plain_password = user_provided_root_pw
+         print("DEBUG: Using user-provided root password.")
+    else:
+        alphabet = string.ascii_letters + string.digits + string.punctuation.replace('"', '').replace("'", "").replace("\\", "") # Avoid shell-problematic chars
+        root_plain_password = ''.join(secrets.choice(alphabet) for i in range(16))
+        print(f"DEBUG: Generated random root password.") # Don't log the generated password
+
+    # User password from request
+    user_plain_password = data.get("user", {}).get("password")
 
     creds_config = {
-        "!root-password": root_plain_password, # Use the generated plaintext password
-        "!users": [
-            {
-                "!password": data.get("user", {}).get("password"), # Plaintext user password
-                "username": data.get("user", {}).get("username") # Username for matching
-            }
-        ]
+        "!root-password": root_plain_password,
+        "!users": []
     }
+    # Only add user creds if username and password exist
+    username = data.get("user", {}).get("username")
+    if username and user_plain_password:
+         creds_config["!users"].append({
+             "!password": user_plain_password,
+             "username": username
+         })
+    elif username:
+         print("WARN: Username provided but no password found in request for user_config.")
+    else:
+         print("WARN: No username provided in user_config.")
+
 
     # debug-print the final configs for troubleshooting
-    print(f"DEBUG: final archinstall main config: {config}")
-    print(f"DEBUG: final archinstall creds config: {creds_config}")
+    print(f"DEBUG: final archinstall main config: {json.dumps(config, indent=2)}")
+    print(f"DEBUG: final archinstall creds config: {json.dumps(creds_config, indent=2)}")
 
     # save configs in the project root (Boxlinux folder)
     project_dir = os.path.dirname(os.path.abspath(__file__))
     config_path = os.path.join(project_dir, 'archinstall_config.json')
     creds_path = os.path.join(project_dir, 'archinstall_creds.json') # Path for creds file
-    
-    with open(config_path, 'w') as f:
-        json.dump(config, f) # Save main config
-    with open(creds_path, 'w') as f:
-        json.dump(creds_config, f) # Save creds config
-        
-    # --- Start Installation as Detached Process --- 
-    progress_file_path = '/tmp/archinstall_progress.json'
-    stderr_log_path = '/tmp/archinstall_stderr.log'
-    
-    # Clear previous logs/progress if they exist
-    if os.path.exists(progress_file_path):
-        os.remove(progress_file_path)
-    if os.path.exists(stderr_log_path):
-        os.remove(stderr_log_path)
-
-    # Command to run archinstall
-    cmd = ['python', '-m', 'archinstall', 
-           '--config', config_path, 
-           '--creds', creds_path, 
-           '--script', 'guided', 
-           '--silent', 
-           '--json']
-    print(f"DEBUG: launching detached archinstall command: {cmd}")
 
     try:
-        # Open files for redirection
-        outfile = open(progress_file_path, 'w')
-        errfile = open(stderr_log_path, 'w')
-        infile = open('/dev/null', 'r') # Provide null input
+        with open(config_path, 'w') as f:
+            json.dump(config, f, indent=4) # Save main config with indent
+        with open(creds_path, 'w') as f:
+            # Ensure restrictive permissions for the credentials file
+            os.chmod(creds_path, 0o600) # Read/Write for owner only
+            json.dump(creds_config, f, indent=4) # Save creds config with indent
 
-        # Launch in a new session, detached from Flask server
-        proc = subprocess.Popen(cmd, 
-                                stdin=infile, 
-                                stdout=outfile, 
-                                stderr=errfile, 
-                                start_new_session=True) # Key for detachment
-                                
-        print(f"DEBUG: Archinstall process launched with PID: {proc.pid}")
-        # We don't wait for proc.wait() here - it runs detached.
-        
-        # Close file handles in the parent process (Flask)
-        # The child process (archinstall) inherits them.
-        infile.close()
-        outfile.close()
-        errfile.close()
-        
-        return jsonify({'status': 'running', 'message': 'Installation process started.'})
-        
     except Exception as e:
-        # Log any errors during process launch
-        print(f"ERROR: Failed to launch archinstall process: {e}")
+         print(f"ERROR: Failed to write config/creds files: {e}")
+         return jsonify({'status': 'error', 'message': f'Failed to write configuration files: {e}'}), 500
+
+    # --- Start Installation using PTY ---
+    # Clear previous logs/progress if they exist
+    if os.path.exists(progress_file_path):
+        try:
+            os.remove(progress_file_path)
+        except OSError as e:
+             print(f"WARN: Could not remove previous progress file {progress_file_path}: {e}")
+    if os.path.exists(stderr_log_path):
+        try:
+            os.remove(stderr_log_path)
+        except OSError as e:
+             print(f"WARN: Could not remove previous stderr log file {stderr_log_path}: {e}")
+
+
+    # Command to run archinstall - re-add --json
+    cmd = ['python', '-m', 'archinstall',
+           '--config', config_path,
+           '--creds', creds_path,
+           # '--script', 'guided', # Keep commented
+           # '--silent', # Keep commented
+           '--service-log-level', 'DEBUG'
+           ]
+    print(f"DEBUG: preparing to launch PTY command: {cmd}")
+
+    try:
+        # Fork the process with a pty
+        pid, master_fd = pty.fork()
+
+        if pid == 0:
+            # --- Child Process ---
+            print("DEBUG: Child process started, executing archinstall...")
+            # Execute the command. This replaces the child process.
+            # Ensure PATH is likely correct if running in unusual envs
+            # env = os.environ.copy()
+            try:
+                os.execvp(cmd[0], cmd)
+            except FileNotFoundError:
+                print(f"ERROR: Command not found: {cmd[0]}. Ensure Python environment is correct.")
+                os._exit(1) # Exit child if exec fails
+            except Exception as exec_err:
+                print(f"ERROR: Failed to execute archinstall in child: {exec_err}")
+                os._exit(1) # Exit child
+
+        else:
+            # --- Parent Process ---
+            print(f"DEBUG: Parent process: Archinstall child PID is {pid}, master FD is {master_fd}")
+            install_process_info['pid'] = pid
+
+            # Start the background thread to read PTY output
+            reader_thread = threading.Thread(target=read_pty_output,
+                                             args=(master_fd, progress_file_path, stderr_log_path),
+                                             daemon=True) # Daemonize so it doesn't block exit
+            install_process_info['thread'] = reader_thread
+            reader_thread.start()
+            print(f"DEBUG: PTY reader thread started.")
+
+            # Return immediately, installation runs in background
+            return jsonify({'status': 'running', 'message': f'Installation process started (PID: {pid}).'})
+
+    except Exception as e:
+        # Log any errors during pty.fork or thread start
+        print(f"ERROR: Failed to launch archinstall process via PTY: {e}")
         import traceback
         traceback.print_exc()
-        # Ensure files are closed if error occurs during Popen
-        if 'infile' in locals() and not infile.closed: infile.close()
-        if 'outfile' in locals() and not outfile.closed: outfile.close()
-        if 'errfile' in locals() and not errfile.closed: errfile.close()
-        return jsonify({'status': 'error', 'message': f'Failed to start installation: {e}'}), 500
+        # Clean up fd if it was created before exception
+        if 'master_fd' in locals() and master_fd is not None:
+            try:
+                os.close(master_fd)
+            except OSError:
+                pass
+        install_process_info['pid'] = None # Ensure pid is cleared on error
+        install_process_info['thread'] = None
+        return jsonify({'status': 'error', 'message': f'Failed to start installation via PTY: {e}'}), 500
+
 
 @app.route('/api/install/logs')
 def api_install_logs():
     # Read JSON progress messages from the designated file
-    progress_file_path = '/tmp/archinstall_progress.json'
+    # progress_file_path = '/tmp/archinstall_progress.json' # Defined globally
     events = []
     try:
         if os.path.exists(progress_file_path):
-            with open(progress_file_path, 'r') as f:
-                for line in f:
-                    line = line.strip()
-                    if not line:
-                        continue
-                    try:
-                        msg = json.loads(line)
-                        events.append(msg)
-                    except json.JSONDecodeError:
-                        # Append non-JSON lines as simple messages for debugging
-                        print(f"ARCHINSTALL RAW (from file): {line}")
-                        events.append({'message': line})
+            # Read the whole file content now, as it's written by the thread
+            with open(progress_file_path, 'r', encoding='utf-8') as f:
+                 # Attempt to parse line by line as JSON streams
+                 file_content = f.read()
+                 # Split content into potential JSON objects (assuming they are newline-separated)
+                 json_lines = file_content.strip().split('\n')
+                 for line in json_lines:
+                      line = line.strip()
+                      if not line:
+                          continue
+                      try:
+                          # Handle potential multiple JSON objects per line if not newline separated correctly
+                          # This is tricky; assuming one JSON object per line for now.
+                          msg = json.loads(line)
+                          events.append(msg)
+                      except json.JSONDecodeError:
+                          # Append non-JSON lines as simple messages for debugging
+                          print(f"RAW LOG LINE (non-JSON): {line}")
+                          # Avoid flooding with raw lines if install succeeds but has extra output
+                          # Maybe only add the *last* non-JSON line?
+                          if not events or events[-1].get('message') != line:
+                              events.append({'message': line, 'level': 'INFO'}) # Add level for consistency
+                      except Exception as parse_err:
+                           print(f"ERROR parsing line: {line} - {parse_err}")
+                           events.append({'message': f"Error parsing line: {line}", 'level': 'ERROR'})
+
+    except FileNotFoundError:
+        print(f"WARN: Progress file {progress_file_path} not found yet.")
+        # Don't return error, just empty list or wait message
+        events.append({'message': 'Installation starting, waiting for progress...', 'level': 'INFO'})
     except Exception as e:
         print(f"ERROR: Could not read progress file {progress_file_path}: {e}")
-        events.append({'status': 'error', 'message': f'Error reading progress log: {e}'})
-        
+        events.append({'status': 'error', 'message': f'Error reading progress log: {e}'}) # Keep old status field?
+
     # Return all collected events
     return jsonify(events)
+
 
 @app.route('/api/install/debug_log')
 def api_install_debug_log():
@@ -535,4 +685,6 @@ def api_locale(lang):
     return send_from_directory('locales', os.path.basename(path), mimetype='application/json')
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=8000, debug=True) 
+    # Ensure log files exist with correct permissions if needed?
+    # Or let the reader thread create them.
+    app.run(host='0.0.0.0', port=8000, debug=True) # Keep debug for now 
