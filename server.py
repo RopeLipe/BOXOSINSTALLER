@@ -288,7 +288,7 @@ def api_install():
                         "size": {"unit": "GiB", "value": boot_size_gib, "sector_size": {"unit": "B", "value": 512}},
                         "fs_type": "fat32",
                         "mountpoint": "/boot",
-                        "flags": ["esp", "boot"],
+                        "flags": ["Boot"],
                         "mount_options": [],
                         "btrfs": []
                     }
@@ -378,7 +378,7 @@ def api_install():
         # audio (pipewire) - REMOVED to avoid user service errors in chroot
         # "audio_config": {"audio": data.get("audio_config", "pipewire")},
         # bootloader - Changed default to grub-install for broader compatibility
-        "bootloader": data.get("bootloader", "grub-install"),
+        "bootloader": data.get("bootloader", "grub"),
         # debugging
         "debug": data.get("debug", False),
         # drive to install on (auto-partition default layout)
@@ -503,12 +503,11 @@ def api_install():
              print(f"WARN: Could not remove previous stderr log file {stderr_log_path}: {e}")
 
 
-    # Command to run archinstall - re-add --json
+    # Command to run archinstall
     cmd = ['python', '-m', 'archinstall',
            '--config', config_path,
            '--creds', creds_path,
-           '--silent', # ADD silent flag back, hoping it works with PTY
-           '--json', # Use JSON output with PTY
+           '--silent', # Keep silent flag, hoping it works with PTY
            '--skip-version-check', # Skip the problematic version check
            '--service-log-level', 'DEBUG'
            ]
@@ -567,50 +566,28 @@ def api_install():
 
 @app.route('/api/install/logs')
 def api_install_logs():
-    # Read JSON progress messages from the designated file
-    # progress_file_path = '/tmp/archinstall_progress.json' # Defined globally
+    # Read RAW progress messages from the designated file
     events = []
     try:
         if os.path.exists(progress_file_path):
-            # Read the whole file content now, as it's written by the thread
             with open(progress_file_path, 'r', encoding='utf-8') as f:
                  file_content = f.read()
-                 # Split content into potential JSON objects (assuming they are newline-separated)
+                 # Split content into lines
                  raw_lines = file_content.strip().split('\n')
                  for line in raw_lines:
                       line = line.strip()
-                      if not line:
-                          continue
-                      try:
-                          # Attempt to parse the line as a JSON object
-                          msg = json.loads(line)
-                          # Ensure it's a dictionary (archinstall usually outputs dicts)
-                          if isinstance(msg, dict):
-                              events.append(msg)
-                          else:
-                              # Handle non-dict JSON (e.g., just a string "hello") - unlikely from archinstall
-                              print(f"RAW LOG LINE (non-dict JSON): {line}")
-                              events.append({'message': f'Non-object JSON: {line}', 'level': 'RAW'})
-                      except json.JSONDecodeError:
-                          # Log and append non-JSON lines as simple messages for debugging
-                          # Only log if it's different from the last raw message to avoid spam
-                          if not events or events[-1].get('level') != 'RAW' or events[-1].get('message') != line:
-                               print(f"RAW LOG LINE (non-JSON): {line}")
-                               events.append({'message': line, 'level': 'RAW'})
-                      except Exception as parse_err:
-                           # Catch other potential errors during processing
-                           print(f"ERROR processing line: {line} - {parse_err}")
-                           events.append({'message': f"Error processing line: {line}", 'level': 'ERROR'})
+                      if line:
+                          # Send back simple message objects
+                          events.append({'message': line})
 
     except FileNotFoundError:
         print(f"WARN: Progress file {progress_file_path} not found yet.")
-        # Don't return error, just empty list or wait message
-        events.append({'message': 'Installation starting, waiting for progress...', 'level': 'INFO'})
+        events.append({'message': 'Installation starting, waiting for output...'})
     except Exception as e:
         print(f"ERROR: Could not read progress file {progress_file_path}: {e}")
-        events.append({'level': 'ERROR', 'message': f'Error reading progress log: {e}'})
+        events.append({'message': f'Error reading progress log: {e}'})
 
-    # Return all collected events
+    # Return all collected lines as simple message objects
     return jsonify(events)
 
 

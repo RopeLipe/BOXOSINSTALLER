@@ -758,91 +758,96 @@ This license applies to the core Box application. Additional components or libra
             }
 
             // === Real installation: start via API and poll JSON logs ===
-            let logPollInterval;
+            let logPollInterval = null;
+            let currentProgress = 0; // Keep track of max progress seen
+
             function updateInstallLogs() {
                 fetch('/api/install/logs')
                     .then(r => r.json())
                     .then(events => {
                         if (!Array.isArray(events) || events.length === 0) return;
 
-                        // Find the *last* event with progress information
-                        let lastProgressEvent = null;
-                        for (let i = events.length - 1; i >= 0; i--) {
-                            if (events[i] && events[i].details && typeof events[i].details.percentage === 'number') {
-                                lastProgressEvent = events[i];
-                                break;
-                            }
-                        }
+                        // Define keywords and their estimated progress percentages
+                        const progressKeywords = {
+                            'Creating partition layout': 5,
+                            'Formatting ': 10, // Look for formatting messages
+                            'Mounting partitions': 15,
+                            'Generating mirrorlist': 20,
+                            'Updating pacman database': 25,
+                            'Installing essential packages': 30,
+                            'Installing packages': 35, // General package install start
+                            ' linux': 50, // Finding specific important packages
+                            ' grub': 60,
+                            ' networkmanager': 65,
+                            ' hyprland': 70,
+                            ' sddm': 75,
+                            'Configuring bootloader': 80,
+                            'Generating locales': 85,
+                            'Generating initramfs': 90,
+                            'Setting up user accounts': 95,
+                            'Installation completed': 100,
+                            'Finished installation': 100,
+                            'error occurred': 100, // Set to 100 but handle as error
+                            'Traceback (most recent call last)': 100 // Python error
+                        };
 
-                        // Update progress bar based on the last relevant event
-                        if (lastProgressEvent) {
-                            const percent = Math.max(0, Math.min(100, lastProgressEvent.details.percentage));
-                            progressBar.style.width = percent + '%';
+                        let latestMessage = 'Processing...';
+                        let highestProgress = currentProgress; // Start with the last known progress
+                        let isFinished = false;
+                        let isError = false;
 
-                            // Construct a meaningful progress message
-                            let progressMsg = lastProgressEvent.message || 'Processing...';
-                            if (lastProgressEvent.details.step) {
-                                progressMsg = `Step: ${lastProgressEvent.details.step}`; 
-                                if (lastProgressEvent.message && lastProgressEvent.details.step !== lastProgressEvent.message) {
-                                     progressMsg += ` - ${lastProgressEvent.message}`;
+                        // Iterate through all received messages to find highest progress point
+                        events.forEach(event => {
+                            if (!event || !event.message) return;
+                            const msgLower = event.message.toLowerCase();
+                            latestMessage = event.message; // Update latest message seen
+
+                            for (const keyword in progressKeywords) {
+                                if (msgLower.includes(keyword.toLowerCase())) {
+                                    const progressValue = progressKeywords[keyword];
+                                    if (progressValue > highestProgress) {
+                                        highestProgress = progressValue;
+                                        // Update text only if progress increases significantly
+                                        progressText.textContent = keyword; // Show the matched keyword/step
+                                    }
+                                    if (keyword.toLowerCase().includes('completed') || keyword.toLowerCase().includes('finished')) {
+                                        isFinished = true;
+                                        progressText.textContent = event.message; // Show full final message
+                                    }
+                                    if (keyword.toLowerCase().includes('error') || keyword.toLowerCase().includes('traceback')) {
+                                        isError = true;
+                                        progressText.textContent = `Error: ${event.message}`; // Show error message
+                                        progressBar.style.backgroundColor = 'var(--error-color)';
+                                    }
                                 }
                             }
-                            // Add package details if available
-                             if (lastProgressEvent.details.current_pkg) {
-                                 progressMsg += ` (${lastProgressEvent.details.current_pkg})`;
-                                 if(lastProgressEvent.details.speed_human) progressMsg += ` @ ${lastProgressEvent.details.speed_human}`;
-                             }
-                             progressText.textContent = progressMsg;
+                        });
 
-                             // Check for completion based on percentage
-                             if (percent >= 100) {
-                                console.log("Progress reached 100%, stopping poll and moving next.");
+                        // Update progress bar to the highest percentage found
+                        currentProgress = highestProgress; // Store the new max progress
+                        progressBar.style.width = currentProgress + '%';
+
+                        // If finished or error, stop polling and proceed/show error
+                        if (isFinished || isError) {
+                            if (logPollInterval) {
+                                console.log(`Installation ended (Finished: ${isFinished}, Error: ${isError}). Stopping poll.`);
                                 clearInterval(logPollInterval);
                                 logPollInterval = null;
-                                setTimeout(goToNextStep, 800); // Small delay after 100%
-                             }
-
-                        } else {
-                             // If no progress event found yet, use the last message overall
-                             const lastEvent = events[events.length - 1] || {};
-                             // Avoid showing RAW messages as primary status if possible
-                             let statusMsg = 'Waiting for progress...';
-                             if (lastEvent.message && lastEvent.level !== 'RAW') {
-                                  statusMsg = lastEvent.message;
-                             }
-                             progressText.textContent = statusMsg;
-                        }
-
-                        // Alternative check for completion message (e.g., "Installation completed")
-                         const finalEvent = events[events.length - 1];
-                        if (logPollInterval && finalEvent && finalEvent.message && 
-                            (finalEvent.message.toLowerCase().includes('installation completed') || 
-                             finalEvent.message.toLowerCase().includes('finished installation'))) {
-                             console.log("Found completion message, stopping poll.");
-                             progressBar.style.width = '100%'; // Ensure bar is full
-                             progressText.textContent = finalEvent.message; // Show final message
-                            clearInterval(logPollInterval);
-                            logPollInterval = null;
-                            setTimeout(goToNextStep, 800);
-                        }
-
-                        // Handle potential error messages
-                        if (finalEvent && finalEvent.level && finalEvent.level.toUpperCase() === 'ERROR') {
-                            console.error("Installation error detected:", finalEvent.message);
-                            progressText.textContent = `Error: ${finalEvent.message}`;
-                            progressBar.style.backgroundColor = 'var(--error-color)'; // Indicate error on bar
-                            clearInterval(logPollInterval);
-                            logPollInterval = null;
-                            // Maybe disable next button or show an error state?
-                            // nextButton.disabled = true;
+                            }
+                            if (isFinished && !isError) {
+                                progressBar.style.width = '100%'; // Ensure bar is full on success
+                                setTimeout(goToNextStep, 800); // Proceed to next step
+                            }
+                            // If it was an error, UI already updated in the loop
                         }
                     })
                     .catch((err) => {
                          console.error("Error fetching install logs:", err);
-                         // Don't stop polling on fetch error, maybe network hiccup
                          progressText.textContent = 'Error fetching logs...';
+                         // Optionally clear interval on fetch error? Or let it retry?
                     });
             }
+
             function startInstallation() {
                 // disable navigation
                 nextButton.disabled = true;
