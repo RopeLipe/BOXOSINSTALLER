@@ -29,7 +29,6 @@ import re
 from collections import deque
 import time
 import logging
-import crypt # Import the crypt module
 import secrets # Import secrets for random password generation
 import string # Import string for character sets
 
@@ -354,12 +353,9 @@ def api_install():
     alphabet = string.ascii_letters + string.digits + string.punctuation
     root_plain_password = ''.join(secrets.choice(alphabet) for i in range(16))
     print(f"DEBUG: Generated random root password (plain): {root_plain_password}")
-    # Hash the random root password
-    root_hashed_password = crypt.crypt(root_plain_password, crypt.mksalt(crypt.METHOD_SHA512))
-    print(f"DEBUG: Hashed root password.")
-    
+
     creds_config = {
-        "!root-password": root_hashed_password,
+        "!root-password": root_plain_password, # Use the generated plaintext password
         "!users": [
             {
                 "!password": data.get("user", {}).get("password"), # Plaintext user password
