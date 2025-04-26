@@ -32,6 +32,19 @@ import tempfile
 import time
 import logging
 
+# --- Archinstall Library Imports ---
+try:
+    from archinstall.lib.disk.configurator import suggest_single_disk_layout
+    from archinstall.lib.disk.device_handler import device_handler
+    from archinstall.lib.models.disk import FilesystemType
+    ARCHINSTALL_LIB_AVAILABLE = True
+except ImportError as e:
+    print(f"WARNING: Failed to import archinstall library components: {e}. Disk layout generation will be skipped.")
+    suggest_single_disk_layout = None
+    device_handler = None
+    FilesystemType = None
+    ARCHINSTALL_LIB_AVAILABLE = False
+
 logging.basicConfig(level=logging.DEBUG)
 print("DEBUG: starting server.py in debug mode")
 app = Flask(__name__, static_folder='.', static_url_path='')
@@ -171,10 +184,50 @@ def api_install():
     }
     lang_code = data.get("archinstall-language")
     lang_name = lang_map.get(lang_code, lang_code)
-    # drive selection: just pass the harddrive path and filesystem
-    harddrive = data.get("harddrive", {})
-    filesystem = data.get("filesystem", "ext4")
-    # Prepare defaults for network and profile
+ 
+    # --- Generate Disk Layout --- 
+    disk_cfg = data.get("disk_config")
+    filesystem_str = data.get("filesystem", "ext4")
+    generated_disk_mod = None
+
+    if ARCHINSTALL_LIB_AVAILABLE and isinstance(disk_cfg, dict) and disk_cfg.get('config_type') == 'default_layout':
+        mods = disk_cfg.get('device_modifications', [])
+        if mods and isinstance(mods, list) and len(mods) > 0:
+            target_device_path = mods[0].get('device')
+            if target_device_path:
+                print(f"DEBUG: Attempting to generate default layout for {target_device_path}")
+                device = device_handler.get_device(target_device_path)
+                fs_type_enum = getattr(FilesystemType, filesystem_str.capitalize(), FilesystemType.Ext4)
+
+                if device:
+                    try:
+                        # Call the function that mimics the TUI's default layout logic
+                        generated_disk_mod = suggest_single_disk_layout(device, filesystem_type=fs_type_enum)
+                        # We now have the *explicit* partition plan, so don't use config_type anymore.
+                        # The structure of generated_disk_mod already contains the device path and partitions.
+                        disk_cfg = {"device_modifications": [generated_disk_mod.json(by_alias=True)]}
+                        print(f"DEBUG: Successfully generated disk layout: {disk_cfg}")
+                    except Exception as layout_err:
+                        print(f"ERROR: Failed to generate disk layout: {layout_err}")
+                        # Fallback or signal error - For now, just use the original minimal config
+                        disk_cfg = data.get("disk_config") # Revert to original minimal request
+                else:
+                     print(f"ERROR: Could not get device object for {target_device_path}")
+                     disk_cfg = data.get("disk_config") # Revert
+            else:
+                 print("WARN: No device path found in device_modifications for default layout.")
+                 disk_cfg = data.get("disk_config") # Revert
+        else:
+             print("WARN: No device_modifications found for default layout type.")
+             disk_cfg = data.get("disk_config") # Revert
+    elif not ARCHINSTALL_LIB_AVAILABLE:
+        print("WARN: Archinstall libs not available, cannot generate layout. Using submitted disk_config.")
+        disk_cfg = data.get("disk_config") # Use whatever was sent
+    else:
+        # If it wasn't default_layout or wasn't a dict, just use what was sent.
+        disk_cfg = data.get("disk_config")
+
+    # --- Prepare Network and Profile --- 
     network_cfg = {"type": "nm"}
     profile_cfg = {
         "gfx_driver": None,
@@ -185,9 +238,15 @@ def api_install():
             "custom_settings": {}
         }
     }
+
     # include version and config metadata
     version_val = data.get("version", getattr(archinstall, "__version__", None))
     config = {
+        # Use the potentially generated (or original) disk_cfg here
+        "disk_config": disk_cfg,
+        # Filesystem needs to be top-level for the guided script when using default layout strategy implicitly
+        # Let's keep it for clarity, even if partitions now specify their own fs_type
+        "filesystem": filesystem_str,
         "config_version": version_val,
         "version": version_val,
         "additional-repositories": data.get("additional-repositories", []),
@@ -200,13 +259,7 @@ def api_install():
         # debugging
         "debug": data.get("debug", False),
         # drive to install on (auto-partition default layout)
-        "harddrive": harddrive,
-        # filesystem to format root on
-        "filesystem": filesystem,
-        # hostname
-        "hostname": data.get("hostname", "archlinux"),
-        # kernels
-        "kernels": data.get("kernels", ["linux"]),
+        "harddrive": data.get("harddrive", {}),
         # locale settings
         "locale_config": {"sys_lang": lang_code, "sys_enc": data.get("sys_enc", "UTF-8"), "kb_layout": data.get("kb_layout", "us")},
         # mirrors
