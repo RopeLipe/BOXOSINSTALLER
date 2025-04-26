@@ -215,8 +215,8 @@ def api_install():
                         "status": "create", "type": "primary",
                         "dev_path": None,
                         "obj_id": 0,
-                        "start": {"unit": "mib", "value": boot_start_mib}, # Sector size dict removed for simplicity, archinstall might infer
-                        "size": {"unit": "gib", "value": boot_size_gib}, # Sector size dict removed
+                        "start": {"unit": "mib", "value": boot_start_mib, "sector_size": {"unit": "B", "value": 512}},
+                        "size": {"unit": "gib", "value": boot_size_gib, "sector_size": {"unit": "B", "value": 512}},
                         "fs_type": "fat32",
                         "mountpoint": "/boot",
                         "flags": [], # Let archinstall handle flags like esp, boot
@@ -240,8 +240,8 @@ def api_install():
                         "status": "create", "type": "primary",
                         "dev_path": None,
                         "obj_id": 1,
-                        "start": {"unit": "b", "value": root_start_bytes_calc}, # Specify start in bytes
-                        "size": {"unit": "b", "value": root_size_bytes_calc}, # Specify size in bytes
+                        "start": {"unit": "b", "value": root_start_bytes_calc, "sector_size": {"unit": "B", "value": 512}},
+                        "size": {"unit": "b", "value": root_size_bytes_calc, "sector_size": {"unit": "B", "value": 512}},
                         "fs_type": filesystem_str,
                         "mountpoint": "/",
                         "flags": [],
