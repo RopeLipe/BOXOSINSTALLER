@@ -164,7 +164,7 @@ def api_net_config():
 @app.route('/api/install', methods=['POST'])
 def api_install():
     """Receive installation config, write JSON files, and start archinstall guided script in background"""
-    raw_body = request.get_data(as_text=True)
+    raw_body = request.json
     print(f"DEBUG: raw request body: {raw_body}")
     try:
         data = request.get_json(force=True)
@@ -197,48 +197,53 @@ def api_install():
             wipe_disk = mods[0].get('wipe', True)
 
             if target_device_path:
-                print(f"DEBUG: Calculating default layout for {target_device_path}")
+                print(f"DEBUG: Calculating explicit layout for {target_device_path}")
                 try:
-                    # --- Define Partitions using dicts for sizes and sector_size --- 
-                    sector_size_dict = {"unit": "B", "value": 512} # Default sector size as dict
-                    # /boot partition (UEFI)
-                    boot_size_mib = 512 
+                    # Get total disk size in bytes using blockdev
+                    cmd = ["blockdev", "--getsize64", target_device_path]
+                    total_disk_bytes_str = subprocess.check_output(cmd, universal_newlines=True).strip()
+                    total_disk_bytes = int(total_disk_bytes_str)
+                    print(f"DEBUG: Total disk size for {target_device_path}: {total_disk_bytes} bytes")
+
+                    # Define /boot partition (1 GiB)
+                    boot_size_gib = 1
+                    boot_size_bytes = boot_size_gib * 1024 * 1024 * 1024
+                    boot_start_mib = 1
+                    boot_start_bytes = boot_start_mib * 1024 * 1024
+
                     boot_part = {
                         "status": "create", "type": "primary",
                         "dev_path": None,
-                        "start": {"unit": "MiB", "value": 1, "sector_size": sector_size_dict},
-                        "size": {"unit": "MiB", "value": boot_size_mib, "sector_size": sector_size_dict},
+                        "obj_id": 0,
+                        "start": {"unit": "mib", "value": boot_start_mib}, # Sector size dict removed for simplicity, archinstall might infer
+                        "size": {"unit": "gib", "value": boot_size_gib}, # Sector size dict removed
                         "fs_type": "fat32",
                         "mountpoint": "/boot",
-                        "flags": ["boot", "esp"],
+                        "flags": [], # Let archinstall handle flags like esp, boot
                         "mount_options": [],
                         "btrfs": []
                     }
 
-                    # / (root) partition - Percentage (e.g., 30%)
-                    root_percentage = 30 # Adjust as needed
-                    root_start_mib = 1 + boot_size_mib
+                    # Define / (root) partition (rest of the disk)
+                    # Start immediately after boot partition
+                    root_start_bytes_calc = boot_start_bytes + boot_size_bytes
+                    root_size_bytes_calc = total_disk_bytes - root_start_bytes_calc
+
+                    # Add a small buffer/rounding check - don't request more than available
+                    if root_size_bytes_calc < 0:
+                        raise ValueError("Calculated root partition size is negative. Check disk size and boot partition size.")
+                    # Optional: Align to MiB boundary if needed, but bytes should be fine
+                    # root_start_mib_calc = (root_start_bytes_calc + 1024*1024 - 1) // (1024*1024)
+                    # root_size_bytes_calc = total_disk_bytes - (root_start_mib_calc * 1024 * 1024)
+
                     root_part = {
                         "status": "create", "type": "primary",
                         "dev_path": None,
-                        "start": {"unit": "MiB", "value": root_start_mib, "sector_size": sector_size_dict},
-                        "size": {"unit": "Percent", "value": root_percentage, "sector_size": sector_size_dict},
+                        "obj_id": 1,
+                        "start": {"unit": "b", "value": root_start_bytes_calc}, # Specify start in bytes
+                        "size": {"unit": "b", "value": root_size_bytes_calc}, # Specify size in bytes
                         "fs_type": filesystem_str,
                         "mountpoint": "/",
-                        "flags": [],
-                        "mount_options": [],
-                        "btrfs": []
-                    }
-
-                    # /home partition - Takes the rest of the space
-                    # Start immediately after root. Archinstall calculates this if start isn't precise enough
-                    home_part = {
-                        "status": "create", "type": "primary",
-                        "dev_path": None,
-                        # Omitting start lets the partitioner place it after root
-                        "size": {"unit": "Percent", "value": 100, "sector_size": sector_size_dict}, # 100% of remaining space
-                        "fs_type": filesystem_str,
-                        "mountpoint": "/home",
                         "flags": [],
                         "mount_options": [],
                         "btrfs": []
@@ -247,19 +252,23 @@ def api_install():
                     device_mod = {
                         "device": target_device_path,
                         "wipe": wipe_disk,
-                        "partitions": [boot_part, root_part, home_part]
+                        "partitions": [boot_part, root_part] # Explicitly define the two partitions
                     }
-                    # Set the final config to use this explicit layout, including config_type
                     disk_cfg = {
-                        "config_type": "default_layout", # Use type from example
+                        "config_type": "default_layout", # Keep this type
                         "device_modifications": [device_mod]
                     }
-                    print(f"DEBUG: Calculated default layout: {disk_cfg}")
+                    print(f"DEBUG: Using calculated explicit layout: {json.dumps(disk_cfg, indent=4)}")
 
+                except subprocess.CalledProcessError as proc_err:
+                    print(f"ERROR: Failed to get disk size for {target_device_path}: {proc_err}")
+                    disk_cfg = disk_cfg_request # Fallback to original request
+                except ValueError as val_err:
+                    print(f"ERROR: Calculation error for partitions: {val_err}")
+                    disk_cfg = disk_cfg_request # Fallback
                 except Exception as calc_err:
-                    print(f"ERROR: Failed calculating default layout: {calc_err}")
-                    # Fallback: Use the original request if calculation failed
-                    disk_cfg = disk_cfg_request 
+                    print(f"ERROR: Failed calculating explicit layout: {calc_err}")
+                    disk_cfg = disk_cfg_request # Fallback
             else:
                  print("WARN: No device path found in device_modifications for default layout.")
                  disk_cfg = disk_cfg_request # Use original request
@@ -305,7 +314,7 @@ def api_install():
         # drive to install on (auto-partition default layout)
         "harddrive": data.get("harddrive", {}),
         # locale settings
-        "locale_config": {"sys_lang": lang_code, "sys_enc": data.get("sys_enc", "UTF-8"), "kb_layout": data.get("kb_layout", "us")},
+        "locale_config": {"sys_lang": lang_name, "sys_enc": data.get("sys_enc", "UTF-8"), "kb_layout": data.get("kb_layout", "us")},
         # mirrors
         "mirror_config": data.get("mirror_config", {}),
         # network: NM
