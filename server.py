@@ -93,9 +93,11 @@ def api_disks():
 
 @app.route('/api/network/status')
 def api_network_status():
+    # always gather interface stats and addresses before branching
+    stats = psutil.net_if_stats()
+    addrs = psutil.net_if_addrs()
     # Windows: assume first usable interface
     if IS_WINDOWS:
-        stats = psutil.net_if_stats()
         iface = next((i for i,s in stats.items() if s.isup and not i.lower().startswith('loop')), None)
         # check administrative state via netsh
         enabled = False
@@ -105,21 +107,20 @@ def api_network_status():
         except Exception:
             pass
         return jsonify({'connection_type': 'ethernet', 'interface': iface, 'enabled': enabled})
-    # Linux: original ethernet then wifi scan
+    # Linux: check for active Ethernet
     for iface, stat in stats.items():
         if iface == 'lo':
             continue
         if (iface.startswith('en') or iface.startswith('eth')) and stat.isup:
             # has IPv4 assigned?
-            if any(a.family == socket.AF_INET for a in psutil.net_if_addrs().get(iface, [])):
+            if any(a.family == socket.AF_INET for a in addrs.get(iface, [])):
                 return jsonify({'connection_type': 'ethernet', 'interface': iface})
     # fallback to wireless
     for iface, stat in stats.items():
         if iface.startswith('w') and stat.isup:
-            # scan for Wi-Fi networks
             try:
                 scan = subprocess.check_output(['iwlist', iface, 'scan'], universal_newlines=True, stderr=subprocess.DEVNULL)
-                ssids = re.findall(r'ESSID:"([^"]+)"', scan)
+                ssids = re.findall(r'ESSID:"([^\"]+)"', scan)
             except Exception:
                 ssids = []
             return jsonify({'connection_type': 'wifi', 'interface': iface, 'networks': ssids})
@@ -147,10 +148,22 @@ def api_net_config():
 def api_install():
     """Receive installation config, write JSON files, and start archinstall guided script in background"""
     data = request.json or {}
+    # map language codes to full language names for Archinstall
+    lang_map = {
+        "en": "English",
+        "fr": "Français",
+        "es": "Español",
+        "de": "Deutsch",
+        "it": "Italiano",
+        "pt": "Português"
+        # add more mappings as needed
+    }
+    lang_code = data.get("archinstall-language")
+    lang_name = lang_map.get(lang_code, lang_code)
     # Assemble the Archinstall config from payload
     config = {
-        # translation & UI
-        "archinstall-language": data.get("archinstall-language"),
+        # translation & UI (use full language name)
+        "archinstall-language": lang_name,
         # audio always PipeWire
         "audio_config": "pipewire",
         # bootloader choice
@@ -164,8 +177,8 @@ def api_install():
         "hostname": data.get("hostname", "archlinux"),
         # kernels
         "kernels": data.get("kernels", ["linux"]),
-        # locale based on chosen language
-        "locale_config": {"sys_lang": data.get("archinstall-language"), "sys_enc": data.get("sys_enc", "UTF-8"), "kb_layout": data.get("kb_layout", "us")},
+        # locale based on chosen language (use full language name)
+        "locale_config": {"sys_lang": lang_name, "sys_enc": data.get("sys_enc", "UTF-8"), "kb_layout": data.get("kb_layout", "us")},
         # mirror configuration from country step
         "mirror_config": data.get("mirror_config", {}),
         # network
