@@ -666,6 +666,29 @@ def api_locale(lang):
         path = os.path.join('locales', 'en.json')
     return send_from_directory('locales', os.path.basename(path), mimetype='application/json')
 
+@app.route('/api/reboot', methods=['POST'])
+def api_reboot():
+    """Initiates a system reboot."""
+    print("INFO: Received request to reboot system.")
+    try:
+        # Ensure buffers are flushed before rebooting
+        import sys
+        sys.stdout.flush()
+        sys.stderr.flush()
+        # Execute the reboot command
+        # Using os.system might be simpler in this context if running as root
+        # result = subprocess.run(['reboot', 'now'], check=True, capture_output=True, text=True)
+        # print(f"INFO: Reboot command executed. stdout: {result.stdout}, stderr: {result.stderr}")
+        os.system('reboot') # Simpler, relies on PATH
+        # If os.system returns, it likely failed or is non-blocking in some odd way
+        return jsonify({"status": "rebooting"}), 200
+    except Exception as e:
+        print(f"ERROR: Failed to initiate reboot: {e}")
+        # Log the exception traceback for more details
+        import traceback
+        traceback.print_exc()
+        return jsonify({"status": "error", "message": str(e)}), 500
+
 if __name__ == '__main__':
     # Ensure log files exist with correct permissions if needed?
     # Or let the reader thread create them.

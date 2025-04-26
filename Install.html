@@ -479,14 +479,15 @@ This license applies to the core Box application. Additional components or libra
                     <svg><use xlink:href="#icon-success-circle"/></svg>
                  </div>
                 <h2>Installation Complete</h2>
-                <p>Wave has been successfully installed.</p>
-                 <label class="accept-label" style="margin-top: 20px;">
+                <p>Wave has been successfully installed. A reboot is required to complete the setup.</p>
+                 <!-- Remove Launch App Checkbox -->
+                 <!-- <label class="accept-label" style="margin-top: 20px;">
                     <input type="checkbox" id="launch-app-checkbox" checked>
                     <span class="custom-checkbox">
                          <svg><use xlink:href="#icon-check"/></svg>
                     </span>
                     Launch Wave now
-                 </label>
+                 </label> -->
             </div>
         </div> <!-- End installer-body -->
 
@@ -496,7 +497,7 @@ This license applies to the core Box application. Additional components or libra
                 <button id="next-button" class="primary">
                      <svg><use xlink:href="#icon-arrow-right"/></svg>
                 </button>
-                <button id="finish-button" class="primary" style="display: none;">Finish</button>
+                <button id="finish-button" class="primary" style="display: none;">Reboot Now</button>
              </div>
         </footer> <!-- End installer-footer -->
     </div> <!-- End installer -->
@@ -767,65 +768,149 @@ This license applies to the core Box application. Additional components or libra
                     .then(events => {
                         if (!Array.isArray(events) || events.length === 0) return;
 
-                        // Define keywords and their estimated progress percentages
+                        // Refined keywords based on actual log
                         const progressKeywords = {
+                            // Initial Steps (0-15%)
                             'Creating partition layout': 5,
-                            'Formatting ': 10, // Look for formatting messages
-                            'Mounting partitions': 15,
-                            'Generating mirrorlist': 20,
-                            'Updating pacman database': 25,
+                            'Formatting ': 8, // Formatting partitions
+                            'Mounting ': 12,
+                            'Enabling NTP': 15,
+                            // Pacman & Mirrors (15-30%)
+                            'Updating pacman database': 18,
+                            'Synchronizing package databases': 20,
+                            'core downloading': 22,
+                            'extra downloading': 24,
+                            'multilib downloading': 26,
+                            'resolving dependencies': 28,
+                            // Essential Package Installation (30-45%)
                             'Installing essential packages': 30,
-                            'Installing packages': 35, // General package install start
-                            ' linux': 50, // Finding specific important packages
-                            ' grub': 60,
-                            ' networkmanager': 65,
-                            ' hyprland': 70,
-                            ' sddm': 75,
-                            'Configuring bootloader': 80,
-                            'Generating locales': 85,
-                            'Generating initramfs': 90,
-                            'Setting up user accounts': 95,
+                            'checking keyring': 31,
+                            'checking package integrity': 32,
+                            'loading package files': 33,
+                            'checking file conflicts': 34,
+                            'checking available disk space': 35,
+                            'installing filesystem': 36,
+                            'installing glibc': 37,
+                            'installing bash': 38,
+                            'installing systemd-libs': 39,
+                            'installing systemd': 40,
+                            'installing linux': 42,
+                            'installing grub': 44,
+                            'installing efibootmgr': 45,
+                            // Main Package Installation (45-80%)
+                            'Installing packages: [': 46, // Start of main package list
+                            'installing pipewire': 48,
+                            'installing wireplumber': 50,
+                            'installing mesa': 52,
+                            'installing wayland': 54,
+                            'installing hyprland': 56,
+                            'installing gtk3': 58,
+                            'installing gtk4': 60,
+                            'installing fontconfig': 62,
+                            'installing polkit': 64,
+                            'installing networkmanager': 66, // Pulled from essential in log?
+                            'installing qt5-base': 68,
+                            'installing qt6-base': 70,
+                            'installing sddm': 72,
+                            'installing kitty': 74,
+                            'installing noto-fonts': 76,
+                            'installing ttf-jetbrains-mono-nerd': 78,
+                            'installing git': 79,
+                            // Configuration & Hooks (80-99%)
+                            'Running post-transaction hooks': 80,
+                            'Creating system user accounts': 82,
+                            'Updating udev hardware database': 84,
+                            'Updating linux initcpios': 85,
+                            'Building image from preset': 86,
+                            'Generating module dependencies': 88,
+                            'Creating gzip-compressed initcpio image': 90,
+                            'Configuring timezone': 91,
+                            'Generating locales': 92,
+                            'Setting keyboard layout': 93,
+                            'Setting hostname': 94,
+                            'Configuring bootloader': 95,
+                            'Installing grub for': 96,
+                            'Generating grub configuration file': 97,
+                            'Enabling services': 98,
+                            // Completion / Error (100%)
                             'Installation completed': 100,
                             'Finished installation': 100,
-                            'error occurred': 100, // Set to 100 but handle as error
-                            'Traceback (most recent call last)': 100 // Python error
+                            'error occurred': 100, // Error state
+                            'Traceback (most recent call last)': 100, // Error state
+                            'command failed to execute correctly': 100 // Error state during hooks
                         };
+                        // Keywords that indicate package installation phase
+                        const packagePhaseKeywords = [
+                             'installing ', // Generic install message
+                             'checking keyring', 'checking package integrity', 'loading package files',
+                             'checking file conflicts', 'checking available disk space'
+                             // Specific package names are handled by the generic 'installing ' above
+                        ];
+
 
                         let latestMessage = 'Processing...';
                         let highestProgress = currentProgress; // Start with the last known progress
+                        let displayMessage = progressText.textContent; // Keep current message unless progress increases
                         let isFinished = false;
                         let isError = false;
 
                         // Iterate through all received messages to find highest progress point
                         events.forEach(event => {
                             if (!event || !event.message) return;
-                            const msgLower = event.message.toLowerCase();
-                            latestMessage = event.message; // Update latest message seen
+                            const msgTrimmed = event.message.trim(); // Use trimmed message for matching
+                            const msgLower = msgTrimmed.toLowerCase();
+                            latestMessage = msgTrimmed; // Update latest message seen
 
                             for (const keyword in progressKeywords) {
-                                if (msgLower.includes(keyword.toLowerCase())) {
+                                const keywordLower = keyword.toLowerCase();
+                                // Use includes for partial matches like 'Formatting '
+                                if (msgLower.includes(keywordLower)) {
                                     const progressValue = progressKeywords[keyword];
+                                    const isPackageKeyword = packagePhaseKeywords.some(pkgKeyword => keywordLower === pkgKeyword.toLowerCase());
+                                    const isGenericInstall = keywordLower === 'installing ';
+
                                     if (progressValue > highestProgress) {
                                         highestProgress = progressValue;
-                                        // Update text only if progress increases significantly
-                                        progressText.textContent = keyword; // Show the matched keyword/step
+                                        // Update text based on keyword type
+                                        if (isGenericInstall) {
+                                            // Show generic message, potentially add package name if desired?
+                                            // displayMessage = 'Installing packages...';
+                                            // Or show the specific package being installed?
+                                            displayMessage = msgTrimmed; // Show the 'installing <pkg>...' line
+                                        } else if (isPackageKeyword) {
+                                            displayMessage = 'Installing packages...'; // Generic for check phases
+                                        } else {
+                                            // Use the keyword itself for major steps, trim potential spaces
+                                            displayMessage = keyword.trim();
+                                        }
                                     }
-                                    if (keyword.toLowerCase().includes('completed') || keyword.toLowerCase().includes('finished')) {
+
+                                    // Check for finish/error states regardless of progress increase
+                                    if (keywordLower.includes('completed') || keywordLower.includes('finished')) {
                                         isFinished = true;
-                                        progressText.textContent = event.message; // Show full final message
+                                        displayMessage = event.message; // Show full final message
+                                        highestProgress = 100; // Ensure progress hits 100
                                     }
-                                    if (keyword.toLowerCase().includes('error') || keyword.toLowerCase().includes('traceback')) {
+                                    if (keywordLower.includes('error') || keywordLower.includes('traceback') || keywordLower.includes('command failed')) {
                                         isError = true;
-                                        progressText.textContent = `Error: ${event.message}`; // Show error message
+                                        displayMessage = `Error: ${event.message}`; // Show error message
                                         progressBar.style.backgroundColor = 'var(--error-color)';
+                                        highestProgress = currentProgress; // Keep progress where error occurred
                                     }
+                                    // Break inner loop once a keyword is matched for this line?
+                                    // Optional: If keywords are ordered/exclusive enough, breaking might be slightly more efficient.
+                                    // break;
                                 }
                             }
                         });
 
-                        // Update progress bar to the highest percentage found
+                        // Update progress bar and text content *after* checking all events
                         currentProgress = highestProgress; // Store the new max progress
                         progressBar.style.width = currentProgress + '%';
+                        // Only update text if it changed or if finished/error
+                        if (progressText.textContent !== displayMessage || isFinished || isError) {
+                             progressText.textContent = displayMessage;
+                        }
 
                         // If finished or error, stop polling and proceed/show error
                         if (isFinished || isError) {
@@ -838,7 +923,7 @@ This license applies to the core Box application. Additional components or libra
                                 progressBar.style.width = '100%'; // Ensure bar is full on success
                                 setTimeout(goToNextStep, 800); // Proceed to next step
                             }
-                            // If it was an error, UI already updated in the loop
+                            // Error state is handled by setting text content and progress bar color
                         }
                     })
                     .catch((err) => {
@@ -937,9 +1022,29 @@ This license applies to the core Box application. Additional components or libra
             // --- Event Listeners ---
             if (nextButton) nextButton.addEventListener('click', goToNextStep);
             if (finishButton) finishButton.addEventListener('click', () => {
-                 const launchApp = launchAppCheckbox.checked;
-                 alert(`Installer finished. Closing. ${launchApp ? 'Wave would launch.' : ''}`);
-                 document.body.innerHTML = `<div style="display:flex; align-items:center; justify-content:center; height:100vh; background-color: var(--bg-color); color: var(--text-muted);">Window Closed</div>`;
+                 // Call the reboot API endpoint
+                 console.log("Initiating reboot via API...");
+                 finishButton.disabled = true; // Disable button
+                 finishButton.textContent = 'Rebooting...';
+                 fetch('/api/reboot', { method: 'POST' })
+                    .then(response => {
+                         if (response.ok) {
+                            console.log("Reboot command sent successfully.");
+                            // Display a message indicating reboot is happening
+                            document.body.innerHTML = `<div style="display:flex; align-items:center; justify-content:center; height:100vh; background-color: var(--bg-color); color: var(--text-muted);">Rebooting system...</div>`;
+                         } else {
+                             console.error("Reboot command failed.");
+                             alert("Failed to initiate reboot. Please reboot manually.");
+                             finishButton.disabled = false;
+                             finishButton.textContent = 'Reboot Now';
+                         }
+                    })
+                    .catch(err => {
+                         console.error("Error calling reboot API:", err);
+                         alert("Error contacting server for reboot. Please reboot manually.");
+                         finishButton.disabled = false;
+                         finishButton.textContent = 'Reboot Now';
+                    });
             });
             if (languageOptionsContainer) languageOptionsContainer.addEventListener('click', (e) => {
                  if (e.target && e.target.classList.contains('language-item')) {
