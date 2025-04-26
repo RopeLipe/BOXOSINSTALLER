@@ -219,7 +219,7 @@ def api_install():
                         "size": {"unit": "GiB", "value": boot_size_gib, "sector_size": {"unit": "B", "value": 512}},
                         "fs_type": "fat32",
                         "mountpoint": "/boot",
-                        "flags": [], # Let archinstall handle flags like esp, boot
+                        "flags": ["Boot"],
                         "mount_options": [],
                         "btrfs": []
                     }
@@ -305,10 +305,10 @@ def api_install():
         "additional-repositories": data.get("additional-repositories", []),
         # translation & UI (use full language name)
         "archinstall-language": lang_name,
-        # audio (pipewire)
-        "audio_config": {"audio": data.get("audio_config", "pipewire")},
-        # bootloader
-        "bootloader": data.get("bootloader", "systemd-boot"),
+        # audio (pipewire) - REMOVED to avoid user service errors in chroot
+        # "audio_config": {"audio": data.get("audio_config", "pipewire")},
+        # bootloader - Changed default to grub-install for broader compatibility
+        "bootloader": data.get("bootloader", "grub-install"),
         # debugging
         "debug": data.get("debug", False),
         # drive to install on (auto-partition default layout)
@@ -325,13 +325,24 @@ def api_install():
         "ntp": data.get("ntp", True),
         # offline
         "offline": data.get("offline", False),
-        # extra packages
-        "packages": data.get("packages", []),
+        # extra packages - Add pipewire and Hyprland/GUI packages
+        "packages": data.get("packages", []) + [
+            'pipewire', 'pipewire-pulse', 'pipewire-alsa', 'wireplumber', # Audio
+            'hyprland', 'wayland', 'xorg-xwayland', # Compositor & Wayland
+            'sddm', 'qt5-wayland', 'qt5-quickcontrols2', 'qt5-graphicaleffects', # Login Manager (SDDM)
+            'kitty', 'wofi', 'waybar', 'mako', 'hyprpaper', # Core Hyprland ecosystem apps
+            'polkit-kde-agent', 'xdg-desktop-portal-hyprland', 'xdg-desktop-portal-gtk', # Portals & Auth
+            'qt6-wayland', 'wl-clipboard', 'network-manager-applet', # Utilities & Qt6 support
+            'noto-fonts', 'noto-fonts-emoji', 'ttf-jetbrains-mono-nerd', # Fonts
+            'git' # Version control
+        ],
         "parallel downloads": data.get("parallel downloads", 0),
         # use guided script
         "script": "guided",
         # silent mode
         "silent": data.get("silent", False),
+        # Add services to enable
+        "services": ["sddm"], # Enable SDDM graphical login manager
         # skip flags
         "skip_ntp": data.get("skip_ntp", False),
         "skip_version_check": data.get("skip_version_check", False),
@@ -405,6 +416,26 @@ def api_install():
 def api_install_logs():
     # serve the in-memory JSON progress messages
     return jsonify(list(progress_buffer))
+
+@app.route('/api/install/debug_log')
+def api_install_debug_log():
+    """Reads the last 100 lines from the main archinstall log file for debugging."""
+    log_path = '/var/log/archinstall/install.log'
+    lines = []
+    if not IS_WINDOWS:
+        try:
+            with open(log_path, 'r') as f:
+                # Efficiently get the last N lines
+                lines = deque(f, 100) 
+        except FileNotFoundError:
+            lines = [f"Error: Log file not found at {log_path}"]
+        except Exception as e:
+            lines = [f"Error reading log file {log_path}: {e}"]
+    else:
+        lines = ["Debug log endpoint is disabled on Windows."]
+
+    # Return the lines as a single string with newlines
+    return jsonify({'log_content': "\n".join(lines)})
 
 @app.route('/api/timezones/<country>')
 def api_timezones(country):
