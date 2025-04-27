@@ -395,25 +395,37 @@ def api_install():
         "ntp": data.get("ntp", True),
         # offline
         "offline": data.get("offline", False),
-        # extra packages - Add pipewire and Hyprland/GUI packages
+        # extra packages - Minimal Hyprland + Greetd + nwg-panel
         "packages": data.get("packages", []) + [
-            'pipewire', 'pipewire-pulse', 'pipewire-alsa', 'wireplumber', # Audio
-            'hyprland', 'wayland', 'xorg-xwayland', # Compositor & Wayland
-            'sddm', 'qt5-wayland', 'qt5-quickcontrols2', 'qt5-graphicaleffects', # Login Manager (SDDM)
-            'kitty', 'wofi', 'waybar', 'mako', 'hyprpaper', # Core Hyprland ecosystem apps
-            'polkit-kde-agent', 'xdg-desktop-portal-hyprland', 'xdg-desktop-portal-gtk', # Portals & Auth
-            'qt6-wayland', 'wl-clipboard', 'network-manager-applet', # Utilities & Qt6 support
-            'noto-fonts', 'noto-fonts-emoji', 'ttf-jetbrains-mono-nerd', # Fonts
-            'git', 'fontconfig', 'ttf-dejavu', # Version control & Font rendering support
-            'tzdata' # Timezone data for API and system
+            # Audio
+            'pipewire', 'pipewire-pulse', 'pipewire-alsa', 'wireplumber',
+            # Core Hyprland/Wayland
+            'hyprland', 'wayland', 'xorg-xwayland',
+            # Login Manager
+            'greetd', 'qtgreet',
+            # Panel
+            'nwg-panel',
+            # Terminal
+            'kitty',
+            # System Tray Applets
+            'network-manager-applet', # Wifi/Network
+            'blueman', # Provides blueman-applet for Bluetooth
+            'mate-power-manager', # Battery icon/management
+            # System Integration & Core Utilities
+            'polkit-kde-agent', 'xdg-desktop-portal-hyprland', 'xdg-desktop-portal-gtk',
+            'qt6-wayland', 'qt5-wayland', 'qt5-quickcontrols2', 'qt5-graphicaleffects',
+            'wl-clipboard',
+            # Fonts
+            'noto-fonts', 'noto-fonts-emoji', 'ttf-jetbrains-mono-nerd', 'ttf-dejavu',
+            # Base Utils
+            'git', 'fontconfig', 'tzdata'
         ],
         "parallel downloads": data.get("parallel downloads", 0),
         # use guided script
         "script": "guided",
-        # silent mode - Keep commented, PTY should handle interactivity needs
-        # "silent": data.get("silent", False),
+        # silent mode - Set via silent=True within the config dict itself now
         # Add services to enable
-        "services": ["sddm"], # Enable SDDM graphical login manager
+        "services": ["greetd"], # Enable Greetd login manager
         # skip flags
         "skip_ntp": data.get("skip_ntp", False),
         "skip_version_check": data.get("skip_version_check", False),
@@ -433,7 +445,14 @@ def api_install():
                     "sudo": True
                 }
             ]
-        }
+        },
+        # --- Post-installation Script ---
+        # Add the command to run our custom configuration script after installation
+        # Assuming the default mount point is /mnt/archinstall
+        "post-install": [
+            f"arch-chroot /mnt/archinstall /root/post_install_config.sh {data.get('user', {}).get('username')} /home/{data.get('user', {}).get('username')}"
+        ]
+        # ----------------------------------
         # Passwords are moved to creds file
     }
 
@@ -489,79 +508,95 @@ def api_install():
          print(f"ERROR: Failed to write config/creds files: {e}")
          return jsonify({'status': 'error', 'message': f'Failed to write configuration files: {e}'}), 500
 
-    # --- Start Installation using PTY ---
-    # Clear previous logs/progress if they exist
+    # --- Update Keyring ---
+    # Based on common archinstall/pacstrap issues, update keyring first
+    print("DEBUG: Attempting to update archlinux-keyring...")
+    try:
+        keyring_update_cmd = ['pacman', '-Sy', 'archlinux-keyring', '--noconfirm']
+        keyring_result = subprocess.run(keyring_update_cmd, check=True, capture_output=True, text=True)
+        print(f"DEBUG: Keyring update successful:\n{keyring_result.stdout}")
+    except subprocess.CalledProcessError as e:
+        print(f"ERROR: Failed to update archlinux-keyring: {e}")
+        print(f"ERROR STDOUT: {e.stdout}")
+        print(f"ERROR STDERR: {e.stderr}")
+        # Decide if this is fatal. It might be okay if keyring is recent enough,
+        # but it's often the cause of pacstrap failures. Return error for now.
+        return jsonify({"status": "error", "message": f"Failed to update archlinux-keyring: {e.stderr}"}), 500
+    except FileNotFoundError:
+        print("ERROR: pacman command not found. Cannot update keyring.")
+        # This is definitely fatal in the live environment
+        return jsonify({"status": "error", "message": "pacman command not found"}), 500
+    except Exception as e:
+        print(f"ERROR: An unexpected error occurred during keyring update: {e}")
+        return jsonify({"status": "error", "message": f"Unexpected error updating keyring: {e}"}), 500
+    # ----------------------
+
+    # --- Prepare PTY and Command ---
+    command = [
+        "archinstall",
+        "--config", config_path,
+        "--creds", creds_path,
+        "--json", # Output progress as JSON
+        "--log-file", "/tmp/archinstall_main.log", # Main log separate from progress
+        # "--silent" is now set within the config JSON
+    ]
+    print(f"DEBUG: Prepared archinstall command: {' '.join(command)}")
+
+    # Clean up old progress/stderr files before starting
     if os.path.exists(progress_file_path):
-        try:
-            os.remove(progress_file_path)
-        except OSError as e:
-             print(f"WARN: Could not remove previous progress file {progress_file_path}: {e}")
+        os.remove(progress_file_path)
     if os.path.exists(stderr_log_path):
-        try:
-            os.remove(stderr_log_path)
-        except OSError as e:
-             print(f"WARN: Could not remove previous stderr log file {stderr_log_path}: {e}")
-
-
-    # Command to run archinstall
-    cmd = ['python', '-m', 'archinstall',
-           '--config', config_path,
-           '--creds', creds_path,
-           '--silent', # Keep silent flag, hoping it works with PTY
-           '--skip-version-check', # Skip the problematic version check
-           '--service-log-level', 'DEBUG'
-           ]
-    print(f"DEBUG: preparing to launch PTY command: {cmd}")
+        os.remove(stderr_log_path)
 
     try:
-        # Fork the process with a pty
-        pid, master_fd = pty.fork()
+        # Create a pseudo-terminal (PTY)
+        master_fd, slave_fd = pty.openpty()
+        print(f"DEBUG: Opened PTY pair: master={master_fd}, slave={slave_fd}")
 
-        if pid == 0:
-            # --- Child Process ---
-            print("DEBUG: Child process started, executing archinstall...")
-            # Execute the command. This replaces the child process.
-            # Ensure PATH is likely correct if running in unusual envs
-            # env = os.environ.copy()
-            try:
-                os.execvp(cmd[0], cmd)
-            except FileNotFoundError:
-                print(f"ERROR: Command not found: {cmd[0]}. Ensure Python environment is correct.")
-                os._exit(1) # Exit child if exec fails
-            except Exception as exec_err:
-                print(f"ERROR: Failed to execute archinstall in child: {exec_err}")
-                os._exit(1) # Exit child
+        # Start the archinstall process, connecting its std* to the slave PTY
+        # Use preexec_fn=os.setsid to run in a new session, making it easier to kill later if needed
+        process = subprocess.Popen(
+            command,
+            stdin=slave_fd,
+            stdout=slave_fd,
+            stderr=slave_fd, # Redirect stderr to slave PTY as well
+            close_fds=True, # Close other inherited file descriptors
+            universal_newlines=False, # Read/write bytes with PTY
+            preexec_fn=os.setsid # Run in a new session
+        )
+        print(f"DEBUG: Started archinstall process with PID: {process.pid}")
 
-        else:
-            # --- Parent Process ---
-            print(f"DEBUG: Parent process: Archinstall child PID is {pid}, master FD is {master_fd}")
-            install_process_info['pid'] = pid
+        # Close the slave FD in the parent process, it's only needed by the child (archinstall)
+        os.close(slave_fd)
+        print(f"DEBUG: Closed slave PTY fd {slave_fd} in parent.")
 
-            # Start the background thread to read PTY output
-            reader_thread = threading.Thread(target=read_pty_output,
-                                             args=(master_fd, progress_file_path, stderr_log_path),
-                                             daemon=True) # Daemonize so it doesn't block exit
-            install_process_info['thread'] = reader_thread
-            reader_thread.start()
-            print(f"DEBUG: PTY reader thread started.")
+        # Start the reader thread
+        reader_thread = threading.Thread(
+            target=read_pty_output,
+            args=(master_fd, progress_file_path, stderr_log_path), # Pass master FD and paths
+            daemon=True # Allows main thread to exit even if this thread is running
+        )
+        reader_thread.start()
+        print("DEBUG: Started PTY reader thread.")
 
-            # Return immediately, installation runs in background
-            return jsonify({'status': 'running', 'message': f'Installation process started (PID: {pid}).'})
+        # Store PID and thread info globally
+        install_process_info['pid'] = process.pid
+        install_process_info['thread'] = reader_thread
 
+        return jsonify({"status": "started", "pid": process.pid})
+
+    except FileNotFoundError:
+        print("ERROR: archinstall command not found!")
+        # Ensure PTY FDs are closed if opened
+        if 'master_fd' in locals() and master_fd: os.close(master_fd)
+        if 'slave_fd' in locals() and slave_fd: os.close(slave_fd)
+        return jsonify({"status": "error", "message": "archinstall command not found"}), 500
     except Exception as e:
-        # Log any errors during pty.fork or thread start
-        print(f"ERROR: Failed to launch archinstall process via PTY: {e}")
-        import traceback
-        traceback.print_exc()
-        # Clean up fd if it was created before exception
-        if 'master_fd' in locals() and master_fd is not None:
-            try:
-                os.close(master_fd)
-            except OSError:
-                pass
-        install_process_info['pid'] = None # Ensure pid is cleared on error
-        install_process_info['thread'] = None
-        return jsonify({'status': 'error', 'message': f'Failed to start installation via PTY: {e}'}), 500
+        print(f"ERROR: Failed to start archinstall process: {e}")
+        # Ensure PTY FDs are closed on error
+        if 'master_fd' in locals() and master_fd: os.close(master_fd)
+        if 'slave_fd' in locals() and slave_fd: os.close(slave_fd)
+        return jsonify({"status": "error", "message": f"Failed to start installation: {e}"}), 500
 
 
 @app.route('/api/install/logs')
@@ -631,30 +666,52 @@ def api_timezone_regions():
 @app.route('/api/timezones/<region>')
 def api_timezones_in_region(region):
     """Returns a list of timezones within a specific region."""
-    zoneinfo_path = f'/usr/share/zoneinfo/{region}'
+    zoneinfo_base = '/usr/share/zoneinfo'
+    region_path = os.path.join(zoneinfo_base, region)
     timezones = []
     try:
-        if not os.path.isdir(zoneinfo_path):
-             return jsonify({"error": f"Region '{region}' not found.", "timezones": []}), 404
-                 
-        for root, dirs, files in os.walk(zoneinfo_path):
-            for file in files:
-                # Construct the full timezone path relative to the region
-                full_path = os.path.join(root, file)
-                # Get the timezone name relative to /usr/share/zoneinfo
-                tz_name = os.path.relpath(full_path, '/usr/share/zoneinfo')
-                # Avoid including non-timezone files if any exist
-                if "/" in tz_name and not tz_name.startswith(('.', 'posix/', 'right/')):
-                     # Check if the first char is uppercase (common convention for city names)
-                     # This helps filter out potential helper files sometimes found in zoneinfo
-                     if os.path.basename(tz_name)[0].isupper():
-                        timezones.append(tz_name.replace('\\', '/')) # Ensure forward slashes
+        # Check if the region path exists and is a directory
+        if not os.path.isdir(region_path):
+            # Handle Etc separately as it's often a file or symlink
+            if region == 'Etc' and os.path.exists(os.path.join(zoneinfo_base, 'Etc')):
+                 # Special handling for Etc might be needed if it contains files directly
+                 # For simplicity, we can list known Etc timezones or walk if it's a dir
+                 # Let's try walking it anyway, it might be a directory on some systems
+                 pass # Proceed to walk
+            else:
+                print(f"ERROR: Region directory not found: {region_path}")
+                return jsonify({"error": f"Region '{region}' not found.", "timezones": []}), 404
+
+        # Walk the directory for the given region
+        for root, dirs, files in os.walk(region_path):
+            for filename in files:
+                 # Construct the full path to the file
+                full_path = os.path.join(root, filename)
+                # Get the timezone name relative to the base zoneinfo directory
+                tz_name = os.path.relpath(full_path, zoneinfo_base)
+
+                # Basic filtering: Skip common non-timezone files and hidden files
+                if tz_name.startswith('.') or filename in ['posixrules', 'Factory', 'iso3166.tab', 'zone.tab', 'zone1970.tab', 'leapseconds']:
+                    continue
+
+                # Ensure we use forward slashes for the final timezone identifier
+                timezones.append(tz_name.replace('\\', '/'))
 
         timezones.sort()
     except FileNotFoundError:
-        return jsonify({"error": f"Region path '{zoneinfo_path}' not found.", "timezones": []}), 404
+        # This might catch cases where zoneinfo_base doesn't exist
+        print(f"ERROR: Base zoneinfo path not found: {zoneinfo_base}")
+        return jsonify({"error": "Base zoneinfo directory not found.", "timezones": []}), 500
     except Exception as e:
+        print(f"ERROR: Failed to list timezones for region {region}: {e}")
+        import traceback
+        traceback.print_exc()
         return jsonify({"error": str(e), "timezones": []}), 500
+
+    if not timezones:
+         print(f"WARN: No timezones found for region {region} at path {region_path}")
+         # Return empty list, but with success code (200), as the region might just be empty
+
     return jsonify({"timezones": timezones})
 
 @app.route('/api/locale/<lang>')

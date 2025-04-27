@@ -1,0 +1,91 @@
+/* ~/.config/nwg-panel/style.css */
+
+/* General Panel Style */
+#panel {
+    background-color: rgba(30, 30, 45, 0.75); /* Dark background, adjust alpha for translucency */
+    color: #e0e0e0; /* Light text color */
+    font-family: "JetBrainsMono Nerd Font", sans-serif;
+    font-size: 15px;
+    border-radius: 12px; /* Rounded corners for the panel */
+    margin: 5px 8px; /* Add margin around the panel */
+    padding: 0 10px; /* Padding inside the panel */
+    border: 1px solid rgba(255, 255, 255, 0.1); /* Subtle border */
+}
+
+/* Default Button styling within panel modules */
+#panel button {
+    background-color: rgba(50, 50, 60, 0.8); /* Dark grey translucent button background */
+    color: #e0e0e0;
+    border: none;
+    border-radius: 8px; /* Rounded corners for buttons */
+    padding: 4px 10px;
+    margin: 4px 3px; /* Spacing around buttons */
+    box-shadow: none;
+    transition: background-color 0.2s ease;
+}
+
+#panel button:hover {
+    background-color: rgba(70, 70, 80, 0.9);
+    color: #ffffff;
+}
+
+/* Launcher Button */
+#launcher-button {
+    padding: 4px 8px; /* Adjust padding */
+}
+
+/* Taskbar module container */
+#taskbar {
+    padding: 0 5px;
+}
+
+/* Individual taskbar buttons */
+#taskbar button {
+    padding: 4px; /* Smaller padding for icons */
+    margin: 4px 2px;
+    background-color: rgba(50, 50, 60, 0.8); /* Match default button background */
+    border-radius: 8px;
+}
+
+#taskbar button:hover {
+     background-color: rgba(70, 70, 80, 0.9);
+}
+
+#taskbar button.active {
+    background-color: rgba(100, 120, 160, 0.85); /* Different background for active window */
+    color: #ffffff;
+}
+
+/* Clock */
+#clock {
+    font-weight: bold;
+    padding: 0 15px;
+    color: #ffffff;
+    background-color: transparent; /* No specific background for clock */
+    text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.5);
+}
+
+/* Keyboard Layout */
+#kbd-layout {
+     padding: 4px 10px;
+     margin: 4px 3px;
+     border-radius: 8px;
+     background-color: rgba(50, 50, 60, 0.8); /* Match button background */
+     font-weight: bold;
+}
+
+/* System Tray */
+#tray {
+    padding: 0 5px;
+}
+
+/* Individual Tray Icons (minimal styling possible via CSS) */
+#tray menu {
+    background-color: rgba(30, 30, 45, 0.95); /* Dark background for tray menus */
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 6px;
+}
+
+#tray menuitem {
+    padding: 8px 12px;
+} 

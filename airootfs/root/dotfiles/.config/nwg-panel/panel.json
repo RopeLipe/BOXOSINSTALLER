@@ -1,0 +1,63 @@
+[
+  {
+    "name": "top-panel",
+    "output": "", 
+    "layer": "top", 
+    "position": "top",
+    "height": 48, 
+    "exclusive-zone": true, 
+    "css-name": "panel", 
+    "modules-left": [
+      "custom-button-launcher", 
+      "hyprland-taskbar"        
+    ],
+    "modules-center": [
+      "clock"
+    ],
+    "modules-right": [
+      "keyboard-layout",
+      "tray"                     
+    ],
+
+    "custom-button-launcher": {
+        "css-name": "launcher-button",
+        "icon": "view-grid-symbolic", 
+        "command": "wofi --show drun", 
+        "tooltip-text": "Application Launcher",
+        "icon-size": 22
+    },
+
+    "hyprland-taskbar": {
+      "css-name": "taskbar",
+      "all-outputs": true,
+      "show-app-icon": true,
+      "show-app-name": false, 
+      "image-size": 28,       
+      "task-padding": 4,       
+      "workspace-buttons": false 
+    },
+
+    "clock": {
+      "css-name": "clock",
+      "format": "%H:%M   %a, %d %b", 
+      "tooltip-format": "<big>{:%Y %B}</big>\\n<tt><small>{calendar}</small></tt>", 
+      "interval": 5 
+    },
+
+    "keyboard-layout": {
+        "css-name": "kbd-layout",
+        "tooltip-text": "Keyboard Layout"
+        
+    },
+
+    "tray": {
+      "css-name": "tray",
+      "icon-size": 20,
+      "spacing": 8 
+      
+      
+      
+      
+    }
+  }
+] 
