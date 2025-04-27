@@ -402,7 +402,10 @@ def api_install():
             # Core Hyprland/Wayland
             'hyprland', 'wayland', 'xorg-xwayland',
             # Login Manager
-            'greetd', 'qtgreet',
+            'greetd', 
+            'greetd-gtkgreet', # Use GTK greeter
+            'cage', # Minimal compositor for gtkgreet
+            'gtk3', # Dependency for gtkgreet
             # Panel
             'nwg-panel',
             # Terminal
@@ -437,6 +440,9 @@ def api_install():
         "uikit": data.get("uikit", False),
         # profile config
         "profile_config": profile_cfg,
+        # --- Add silent flag here ---
+        "silent": True, # Ensure silent mode is enabled to avoid TTY issues
+        # ---------------------------
         # User config (non-sensitive parts)
         "user_config": {
             "users": [

@@ -64,11 +64,19 @@ echo "Greetd service enabled."
 mkdir -p /etc/greetd
 cat > /etc/greetd/config.toml << EOF
 [terminal]
+# The VT to run the greeter on.
+# Can be "/dev/ttyX" or just "X" (integer)
 vt = 1
 
+# The default session, also known as the greeter.
 [default_session]
-command = "qtgreet --command Hyprland"
-user = "greeter"
+# `agreety` is the default greeter. Use `gtkgreet` with `cage` instead.
+# command = "agreety --cmd $SHELL"
+command = "cage -s -- gtkgreet" # Use cage to run gtkgreet, -s enables VT switching
+
+# The user to run the command as.
+The user needs to be root or have permission to start Wayland/X sessions.
+# user = "greeter" 
 EOF
 echo "NOTE: Ensure /etc/greetd/config.toml is configured to use qtgreet."
 
