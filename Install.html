@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Wave Installer</title>
+    <title>Box Installer</title>
     <style>
         /* --- Base Styles & Variables --- */
         :root {
@@ -346,7 +346,7 @@
                          <svg><use xlink:href="#icon-document"/></svg>
                     </div>
                     <div class="content-area">
-                        <h2><svg><use xlink:href="#icon-document"/></svg>Wave Terms of Service</h2>
+                        <h2><svg><use xlink:href="#icon-document"/></svg>Box Terms of Service</h2>
                         <p>Please read the following terms carefully.</p>
                         <div class="license-content" id="license-content">
 BOX is a simple, fast and beautiful open-source something.
@@ -392,7 +392,7 @@ This license applies to the core Box application. Additional components or libra
             <!-- Step 5: Installation Destination -->
              <div class="step" id="step-destination">
                  <h2><svg><use xlink:href="#icon-hdd"/></svg>Choose Install Location</h2>
-                 <p>Select the drive where you want to install Wave. Make sure it has enough free space.</p>
+                 <p>Select the drive where you want to install Box. Make sure it has enough free space.</p>
                  <div class="disk-selection-grid" id="disk-options-container">
                      <!-- Disk options populated by JS -->
                  </div>
@@ -445,7 +445,7 @@ This license applies to the core Box application. Additional components or libra
             <!-- Step 7: User Account Creation -->
             <div class="step" id="step-user-account">
                 <h2><svg><use xlink:href="#icon-user"/></svg>Create Your Account</h2>
-                <p>Set up the primary user account for Wave.</p>
+                <p>Set up the primary user account for Box.</p>
                 <div class="form-container">
                     <div class="form-group">
                         <label for="username"><svg><use xlink:href="#icon-user"/></svg>Username</label>
@@ -465,8 +465,8 @@ This license applies to the core Box application. Additional components or libra
 
             <!-- Step 8: Installation Progress -->
             <div class="step" id="step-installing">
-                 <h2>Installing Wave</h2>
-                 <p>Please wait while setup installs Wave on your computer.</p>
+                 <h2>Installing Box</h2>
+                 <p>Please wait while setup installs Box on your computer.</p>
                  <div class="progress-container-install">
                     <div class="progress-bar-install" id="progress-bar"></div>
                  </div>
@@ -479,14 +479,14 @@ This license applies to the core Box application. Additional components or libra
                     <svg><use xlink:href="#icon-success-circle"/></svg>
                  </div>
                 <h2>Installation Complete</h2>
-                <p>Wave has been successfully installed. A reboot is required to complete the setup.</p>
+                <p>Box has been successfully installed. A reboot is required to complete the setup.</p>
                  <!-- Remove Launch App Checkbox -->
                  <!-- <label class="accept-label" style="margin-top: 20px;">
                     <input type="checkbox" id="launch-app-checkbox" checked>
                     <span class="custom-checkbox">
                          <svg><use xlink:href="#icon-check"/></svg>
                     </span>
-                    Launch Wave now
+                    Launch Box now
                  </label> -->
             </div>
         </div> <!-- End installer-body -->
@@ -798,7 +798,7 @@ This license applies to the core Box application. Additional components or libra
                             'installing grub': 44,
                             'installing efibootmgr': 45,
                             // Main Package Installation (45-80%)
-                            'Installing packages: [': 46, // Start of main package list
+                            'Installing packages': 46, // Start of main package list
                             'installing pipewire': 48,
                             'installing wireplumber': 50,
                             'installing mesa': 52,
@@ -1250,7 +1250,7 @@ This license applies to the core Box application. Additional components or libra
                     document.querySelector('#step-language p').textContent = strings.step_language_prompt;
 
                     // Step 2: Welcome / Intro
-                    document.querySelector('#step-welcome h2').textContent = strings.step_welcome_title;
+                    document.querySelector('#step-welcome h2').textContent = strings.step_welcome_title; // e.g., "Install Box App"
                     const welcomePs = document.querySelectorAll('#step-welcome p');
                     welcomePs[0].textContent = strings.step_welcome_lead;
                     welcomePs[1].textContent = strings.step_welcome_needed;
@@ -1261,8 +1261,10 @@ This license applies to the core Box application. Additional components or libra
                     welcomeItems[2].textContent = strings.step_welcome_item3;
 
                     // Step 3: License Agreement
-                    document.querySelector('#step-license h2').lastChild.textContent = strings.step_license_title;
+                    document.querySelector('#step-license h2').lastChild.textContent = strings.step_license_title; // e.g., "Box Terms of Service"
                     document.querySelector('#step-license p').textContent = strings.step_license_prompt;
+                    // License content itself might need manual adjustment if "Wave" is hardcoded there,
+                    // but the locale string step_license_content is pulled dynamically.
                     document.getElementById('license-content').textContent = strings.step_license_content;
 
                     // Step 4: Country Map & Timezone
@@ -1273,8 +1275,8 @@ This license applies to the core Box application. Additional components or libra
                     if (tzLabelSpan) tzLabelSpan.textContent = strings.step_timezone_label;
 
                     // Step 5: Installation Destination
-                    document.querySelector('#step-destination h2').textContent = strings.step_destination_title;
-                    document.querySelector('#step-destination p').textContent = strings.step_destination_prompt;
+                    document.querySelector('#step-destination h2').lastChild.textContent = strings.step_destination_title; // Title update if needed
+                    document.querySelector('#step-destination p').textContent = strings.step_destination_prompt; // Update prompt text
                     document.querySelector('#install-path-display-dest code').textContent = strings.step_destination_default;
 
                     // Step 6: Network Configuration
@@ -1287,8 +1289,8 @@ This license applies to the core Box application. Additional components or libra
                     netMethods[1].textContent = strings.step_network_method_static;
 
                     // Step 7: User Account Creation
-                    document.querySelector('#step-user-account h2').textContent = strings.step_user_title;
-                    document.querySelector('#step-user-account p').textContent = strings.step_user_prompt;
+                    document.querySelector('#step-user-account h2').lastChild.textContent = strings.step_user_title; // Update title
+                    document.querySelector('#step-user-account p').textContent = strings.step_user_prompt; // Update prompt
                     const userLabels = document.querySelectorAll('#step-user-account .form-group label');
                     userLabels[0].lastChild.textContent = strings.step_user_username_label;
                     userLabels[1].lastChild.textContent = strings.step_user_password_label;
@@ -1299,14 +1301,16 @@ This license applies to the core Box application. Additional components or libra
                     document.getElementById('password-error').textContent = strings.step_user_password_error;
 
                     // Step 8: Installation Progress
-                    document.querySelector('#step-installing h2').textContent = strings.step_installing_title;
-                    document.querySelector('#step-installing p').textContent = strings.step_installing_prompt;
+                    document.querySelector('#step-installing h2').textContent = strings.step_installing_title; // e.g., "Installing Box"
+                    document.querySelector('#step-installing p').textContent = strings.step_installing_prompt; // e.g., "Please wait while setup installs Box..."
                     document.getElementById('progress-text-install').textContent = strings.step_installing_initializing;
 
                     // Step 9: Finish
-                    document.querySelector('#step-finish h2').textContent = strings.step_finish_title;
-                    document.querySelector('#step-finish p').textContent = strings.step_finish_prompt;
-                    document.querySelector('#step-finish .accept-label').lastChild.textContent = strings.step_finish_launch;
+                    document.querySelector('#step-finish h2').textContent = strings.step_finish_title; // e.g., "Installation Complete"
+                    document.querySelector('#step-finish p').textContent = strings.step_finish_prompt; // e.g., "Box has been successfully installed."
+                    // Make sure the launch string is also updated if needed
+                    const launchLabel = document.querySelector('#step-finish .accept-label');
+                    if (launchLabel) launchLabel.lastChild.textContent = strings.step_finish_launch; // e.g., "Launch Box now"
 
                     // Footer Buttons
                     document.getElementById('next-button').textContent = strings.button_next;
